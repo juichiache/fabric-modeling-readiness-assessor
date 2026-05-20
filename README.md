@@ -44,6 +44,8 @@ flowchart LR
 
 AI doesn't read your data—it reads *how your data is described*. If those descriptions are inconsistent, incomplete, or missing, the AI gives wrong answers or refuses to answer at all. The scanner checks four things:
 
+![The four checks the scanner runs](docs/fmra_four_checks.png)
+
 ### 1. Are the same concepts defined the same way everywhere?
 
 Your organization probably has multiple reports, dashboards, and datasets. Each one has its own definition of "Customer," "Order," or "Revenue." If those definitions disagree—different keys, different join logic, different names for the same thing—the AI gets confused about which one to trust.

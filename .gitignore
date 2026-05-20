@@ -1,6 +1,6 @@
 # Deliverables — never commit customer assessment output
 assessments/*
-!assessments/.gitkeep
+!assessments/README.md
 
 # Narrator auth token cache — must never be committed
 .narrator-token-cache

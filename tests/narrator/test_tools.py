@@ -120,3 +120,157 @@ class TestAuditSourceAttribution:
         from narrator.mcp_server.tools.audit_source_attribution import audit_source_attribution
         result = audit_source_attribution({"findings": [], "maturity_scores": []})
         assert result["gaps"] == []
+
+
+class TestRunScanner:
+    """Tests for run_scanner — all calls are mocked; no live Fabric API."""
+
+    def _make_headers(self, token="test-token"):
+        return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    def test_successful_run(self, requests_mock):
+        from narrator.mcp_server.tools.run_scanner import run_scanner
+
+        workspace_id = "ws-guid"
+        notebook_id = "nb-guid"
+        job_id = "job-guid-001"
+
+        # Mock trigger endpoint
+        requests_mock.post(
+            f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
+            f"/items/{notebook_id}/jobs/instances",
+            status_code=202,
+            headers={
+                "Location": (
+                    f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
+                    f"/items/{notebook_id}/jobs/instances/{job_id}"
+                )
+            },
+            json={},
+        )
+
+        # Mock poll endpoint — succeed on first poll
+        requests_mock.get(
+            f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}"
+            f"/items/{notebook_id}/jobs/instances/{job_id}",
+            json={"status": "Succeeded"},
+        )
+
+        result = run_scanner(
+            workspace_id=workspace_id,
+            notebook_id=notebook_id,
+            fabric_token="test-token",
+            poll=True,
+        )
+
+        assert result["status"] == "Succeeded"
+        assert result["job_instance_id"] == job_id
+        assert "succeeded" in result["message"].lower()
+
+    def test_trigger_failure_returns_error(self, requests_mock):
+        from narrator.mcp_server.tools.run_scanner import run_scanner
+
+        requests_mock.post(
+            "https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances",
+            status_code=403,
+            text="Forbidden",
+        )
+
+        result = run_scanner(
+            workspace_id="ws",
+            notebook_id="nb",
+            fabric_token="bad-token",
+            poll=False,
+        )
+
+        assert result["status"] == "Failed"
+        assert "403" in result["message"]
+
+    def test_no_poll_returns_submitted(self, requests_mock):
+        from narrator.mcp_server.tools.run_scanner import run_scanner
+
+        job_id = "job-guid-002"
+        requests_mock.post(
+            "https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances",
+            status_code=202,
+            headers={
+                "Location": (
+                    "https://api.fabric.microsoft.com/v1/workspaces/ws"
+                    f"/items/nb/jobs/instances/{job_id}"
+                )
+            },
+            json={},
+        )
+
+        result = run_scanner(
+            workspace_id="ws",
+            notebook_id="nb",
+            fabric_token="tok",
+            poll=False,
+        )
+
+        assert result["status"] == "Submitted"
+        assert result["job_instance_id"] == job_id
+
+    def test_parameters_injected(self, requests_mock):
+        from narrator.mcp_server.tools.run_scanner import run_scanner
+        import json as _json
+
+        captured = {}
+
+        def capture_request(request, context):
+            captured["body"] = _json.loads(request.body)
+            context.status_code = 202
+            context.headers["Location"] = (
+                "https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances/jid"
+            )
+            return {}
+
+        requests_mock.post(
+            "https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances",
+            json=capture_request,
+        )
+
+        run_scanner(
+            workspace_id="ws",
+            notebook_id="nb",
+            fabric_token="tok",
+            workspace_id_param="my-ws-guid",
+            workspace_url_param="https://app.fabric.microsoft.com/groups/my-ws-guid",
+            poll=False,
+        )
+
+        params = captured["body"]["executionData"]["parameters"]
+        assert params["WORKSPACE_ID"]["value"] == "my-ws-guid"
+        assert "my-ws-guid" in params["WORKSPACE_URL"]["value"]
+
+    def test_failed_job_returns_failure_reason(self, requests_mock):
+        from narrator.mcp_server.tools.run_scanner import run_scanner
+
+        job_id = "job-guid-003"
+        requests_mock.post(
+            "https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances",
+            status_code=202,
+            headers={
+                "Location": (
+                    f"https://api.fabric.microsoft.com/v1/workspaces/ws"
+                    f"/items/nb/jobs/instances/{job_id}"
+                )
+            },
+            json={},
+        )
+        requests_mock.get(
+            f"https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances/{job_id}",
+            json={"status": "Failed", "failureReason": {"message": "Kernel crashed"}},
+        )
+
+        result = run_scanner(
+            workspace_id="ws",
+            notebook_id="nb",
+            fabric_token="tok",
+            poll=True,
+        )
+
+        assert result["status"] == "Failed"
+        assert "Kernel crashed" in result["message"]
+

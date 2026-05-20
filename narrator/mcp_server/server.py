@@ -20,6 +20,7 @@ from narrator.mcp_server.tools.list_semantic_models import list_semantic_models
 from narrator.mcp_server.tools.extract_entity_definitions import extract_entity_definitions
 from narrator.mcp_server.tools.audit_source_attribution import audit_source_attribution
 from narrator.mcp_server.tools.enumerate_ontologies import enumerate_ontologies
+from narrator.mcp_server.tools.run_scanner import run_scanner
 
 try:
     import fastmcp
@@ -98,6 +99,42 @@ def build_server():  # pragma: no cover
     def tool_enumerate_ontologies(root_path: str, run_id: str) -> dict:
         """List ontology IDs captured in a run artifact."""
         return enumerate_ontologies(root_path=root_path, run_id=run_id)
+
+    @mcp.tool()
+    def tool_run_scanner(
+        workspace_id: str,
+        notebook_id: str,
+        fabric_token: str,
+        workspace_id_param: str = "",
+        workspace_url_param: str = "",
+    ) -> dict:
+        """Trigger the modeling-readiness-scanner notebook in Fabric and wait for completion.
+
+        Runs the scanner notebook via the Fabric REST API, optionally injecting
+        WORKSPACE_ID and WORKSPACE_URL as notebook parameters so the customer
+        does not need to edit Cell 1 manually.
+
+        Args:
+            workspace_id: Fabric workspace GUID that owns the notebook.
+            notebook_id: Fabric item ID (GUID) of the scanner notebook.
+            fabric_token: Bearer token with Fabric API scope
+                (https://api.fabric.microsoft.com/user_impersonation).
+            workspace_id_param: Workspace GUID to scan (injected as WORKSPACE_ID).
+                Leave empty to use the value already in the notebook.
+            workspace_url_param: Fabric workspace URL to scan (injected as WORKSPACE_URL).
+                Leave empty to use the value already in the notebook.
+
+        Returns:
+            {"status": "Succeeded"|"Failed"|"Timeout", "job_instance_id": "...", "message": "..."}
+        """
+        return run_scanner(
+            workspace_id=workspace_id,
+            notebook_id=notebook_id,
+            fabric_token=fabric_token,
+            workspace_id_param=workspace_id_param,
+            workspace_url_param=workspace_url_param,
+            poll=True,
+        )
 
     return mcp
 

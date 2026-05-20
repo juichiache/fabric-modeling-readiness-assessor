@@ -12,6 +12,7 @@ import msal
 import yaml
 
 SCOPE = ["https://storage.azure.com/user_impersonation"]
+FABRIC_SCOPE = ["https://api.fabric.microsoft.com/user_impersonation"]
 CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"  # Azure CLI public client — no secret needed
 AUTHORITY = "https://login.microsoftonline.com/organizations"
 CACHE_FILENAME = ".narrator-token-cache"
@@ -62,6 +63,55 @@ def get_token(config_path: str = DEFAULT_CONFIG) -> str:
 
     # Fall back to device code flow
     flow = app.initiate_device_flow(SCOPE)
+    if "user_code" not in flow:
+        raise RuntimeError(f"Failed to initiate device code flow: {flow}")
+
+    print(flow.get("message", "Sign in via device code."))
+
+    result = app.acquire_token_by_device_flow(flow)
+    if "access_token" not in result:
+        raise RuntimeError(
+            f"Token acquisition failed: {result.get('error_description', result)}"
+        )
+
+    _persist_cache(token_cache, cache_path, token_cache_enabled)
+    return result["access_token"]
+
+
+def get_fabric_token(config_path: str = DEFAULT_CONFIG) -> str:
+    """Acquire a Fabric API bearer token via MSAL device code flow.
+
+    Scope: https://api.fabric.microsoft.com/user_impersonation
+    Used for triggering notebook runs via the Fabric REST API.
+
+    Returns:
+        Bearer token string.
+
+    Raises:
+        RuntimeError: If token acquisition fails.
+    """
+    config = _load_config(config_path)
+    token_cache_enabled = bool(config.get("token_cache", False))
+    cache_path = Path(os.path.dirname(os.path.abspath(config_path))) / CACHE_FILENAME
+
+    token_cache = msal.SerializableTokenCache()
+    if token_cache_enabled and cache_path.exists():
+        token_cache.deserialize(cache_path.read_text(encoding="utf-8"))
+
+    app = msal.PublicClientApplication(
+        CLIENT_ID,
+        authority=AUTHORITY,
+        token_cache=token_cache if token_cache_enabled else None,
+    )
+
+    accounts = app.get_accounts()
+    if accounts:
+        result = app.acquire_token_silent(FABRIC_SCOPE, account=accounts[0])
+        if result and "access_token" in result:
+            _persist_cache(token_cache, cache_path, token_cache_enabled)
+            return result["access_token"]
+
+    flow = app.initiate_device_flow(FABRIC_SCOPE)
     if "user_code" not in flow:
         raise RuntimeError(f"Failed to initiate device code flow: {flow}")
 

@@ -84,3 +84,92 @@ class TestTokenCacheEnabled:
 
         cache_file = tmp_path / ".narrator-token-cache"
         assert cache_file.exists(), ".narrator-token-cache MUST be created when token_cache: true"
+
+
+class TestGetFabricToken:
+    """Tests for get_fabric_token — mirrors get_token but uses Fabric API scope."""
+
+    def test_get_fabric_token_returns_string(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "narrator.config.yaml").write_text(
+            "workspace_url: ''\ntoken_cache: false\nsimilarity_threshold: 0.85\ndemo_workspace: false\n",
+            encoding="utf-8",
+        )
+
+        with patch("narrator.mcp_server.auth.msal") as mock_msal:
+            mock_app = MagicMock()
+            mock_msal.PublicClientApplication.return_value = mock_app
+            mock_app.get_accounts.return_value = []
+            mock_app.initiate_device_flow.return_value = {
+                "user_code": "FABRIC-CODE",
+                "message": "Go to ...",
+            }
+            mock_app.acquire_token_by_device_flow.return_value = {
+                "access_token": "fabric-bearer-token",
+                "token_type": "Bearer",
+            }
+
+            from narrator.mcp_server.auth import get_fabric_token
+            token = get_fabric_token(config_path=str(tmp_path / "narrator.config.yaml"))
+            assert token == "fabric-bearer-token"
+
+    def test_get_fabric_token_uses_fabric_scope(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "narrator.config.yaml").write_text(
+            "workspace_url: ''\ntoken_cache: false\nsimilarity_threshold: 0.85\ndemo_workspace: false\n",
+            encoding="utf-8",
+        )
+
+        with patch("narrator.mcp_server.auth.msal") as mock_msal:
+            mock_app = MagicMock()
+            mock_msal.PublicClientApplication.return_value = mock_app
+            mock_app.get_accounts.return_value = []
+            mock_app.initiate_device_flow.return_value = {"user_code": "X", "message": "..."}
+            mock_app.acquire_token_by_device_flow.return_value = {"access_token": "tok"}
+
+            from narrator.mcp_server.auth import get_fabric_token, FABRIC_SCOPE
+            get_fabric_token(config_path=str(tmp_path / "narrator.config.yaml"))
+
+            # Verify device flow was initiated with the Fabric scope
+            mock_app.initiate_device_flow.assert_called_once_with(FABRIC_SCOPE)
+
+    def test_get_fabric_token_silent_from_cache(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "narrator.config.yaml").write_text(
+            "workspace_url: ''\ntoken_cache: false\nsimilarity_threshold: 0.85\ndemo_workspace: false\n",
+            encoding="utf-8",
+        )
+
+        with patch("narrator.mcp_server.auth.msal") as mock_msal:
+            mock_app = MagicMock()
+            mock_msal.PublicClientApplication.return_value = mock_app
+            mock_app.get_accounts.return_value = [{"username": "test@example.com"}]
+            mock_app.acquire_token_silent.return_value = {"access_token": "silent-fabric-tok"}
+
+            from narrator.mcp_server.auth import get_fabric_token
+            token = get_fabric_token(config_path=str(tmp_path / "narrator.config.yaml"))
+
+            assert token == "silent-fabric-tok"
+            # Device flow must NOT have been called when silent acquisition succeeded
+            mock_app.initiate_device_flow.assert_not_called()
+
+    def test_get_fabric_token_raises_on_failure(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "narrator.config.yaml").write_text(
+            "workspace_url: ''\ntoken_cache: false\nsimilarity_threshold: 0.85\ndemo_workspace: false\n",
+            encoding="utf-8",
+        )
+
+        with patch("narrator.mcp_server.auth.msal") as mock_msal:
+            mock_app = MagicMock()
+            mock_msal.PublicClientApplication.return_value = mock_app
+            mock_app.get_accounts.return_value = []
+            mock_app.initiate_device_flow.return_value = {"user_code": "X", "message": "..."}
+            mock_app.acquire_token_by_device_flow.return_value = {
+                "error": "access_denied",
+                "error_description": "User denied consent",
+            }
+
+            from narrator.mcp_server.auth import get_fabric_token
+            with pytest.raises(RuntimeError, match="Token acquisition failed"):
+                get_fabric_token(config_path=str(tmp_path / "narrator.config.yaml"))

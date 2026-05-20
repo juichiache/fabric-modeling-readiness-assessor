@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "modeling-readiness-narrator": {
+      "command": "python",
+      "args": ["-m", "narrator.mcp_server.server"],
+      "cwd": ".",
+      "env": {
+        "PYTHONPATH": "."
+      }
+    }
+  }
+}

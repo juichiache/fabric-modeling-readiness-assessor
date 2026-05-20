@@ -1,8 +1,140 @@
-# Modeling Readiness Assessor — Spec Kit Artifacts
+# Modeling Readiness Assessor
 
-This directory contains the Spec Kit-shaped artifacts for the Modeling
-Readiness Assessor agent, ready to drop into a Spec Kit-initialized
-project.
+Diagnose Microsoft Fabric IQ modeling debt across four canonical disciplines using the Power BI REST API and Fabric IQ ontology API.
+
+For the full quickstart, see **[`specs/001-modeling-readiness-assessor/quickstart.md`](specs/001-modeling-readiness-assessor/quickstart.md)**.
+
+---
+
+## Components
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| Scanner notebook | `scanner/modeling-readiness-scanner.ipynb` | Fabric notebook — enumerates models and ontologies, writes findings artifact to OneLake |
+| Narrator MCP server | `narrator/mcp_server/server.py` | MCP server — exposes 6 tools for reading findings artifacts |
+| Deliverables | `narrator/mcp_server/deliverables.py` | Renders 4 Jinja templates into `assessments/` |
+| Provisioner | `scanner/provisioner.ipynb` | Creates a demo workspace with deliberate modeling debt |
+| Provisioner teardown | `scanner/provisioner-teardown.ipynb` | Removes provisioner demo resources |
+
+---
+
+## Four Canonical Disciplines
+
+| Discipline | Description | Assessment Status |
+|------------|-------------|-------------------|
+| Canonical entity modeling | Detects inconsistent entity definitions (primary keys, join logic, names) across semantic models | Assessed |
+| Field-level lineage | Detects missing source-attribution properties in Fabric IQ ontology entity types | Assessed |
+| Layered modeling | Detects absence of bronze/silver/gold staging layers | Not assessed in this version |
+| Steward-loop modeling | Detects absence of data stewardship feedback loops | Not assessed in this version |
+
+---
+
+## Bootstrap
+
+**Windows (PowerShell):**
+```powershell
+.\bootstrap.ps1
+```
+
+**macOS/Linux:**
+```bash
+chmod +x bootstrap.sh && ./bootstrap.sh
+```
+
+The bootstrap script:
+1. Installs narrator Python dependencies
+2. Detects installed AI hosts (VS Code, Claude Code, Cursor)
+3. Writes MCP registration files for each detected host
+
+---
+
+## Supported AI Hosts
+
+| Host | MCP Config File |
+|------|----------------|
+| VS Code + GitHub Copilot | `.vscode/mcp.json` |
+| Claude Code | `claude_mcp_config.json` |
+| Cursor | `.cursor/mcp.json` |
+
+---
+
+## Running the Scanner
+
+1. Import `scanner/modeling-readiness-scanner.ipynb` into your Fabric workspace
+2. Set `WORKSPACE_ID` and `WORKSPACE_URL` in cell 1
+3. Run all cells top-to-bottom
+4. The findings artifact is written to `Files/modeling-readiness/<run-id>/` in your workspace's OneLake
+
+---
+
+## Configuration
+
+Edit `narrator.config.yaml` before running:
+
+```yaml
+workspace_url: "https://app.fabric.microsoft.com/groups/<your-workspace-guid>/..."
+token_cache: false        # Set to true to cache MSAL tokens in .narrator-token-cache (gitignored)
+similarity_threshold: 0.85  # Entity name similarity threshold [0.5, 1.0]
+demo_workspace: false     # Set to true only to run provisioner/teardown notebooks
+```
+
+### Token Cache
+
+When `token_cache: true`, the narrator caches MSAL tokens in `.narrator-token-cache` at the repo root.
+This file is gitignored and must never be committed.
+
+---
+
+## Scoring Rubric
+
+Maturity scores follow a 0–4 scale defined in `scoring-rubric.yaml`:
+
+| Findings | Score | Label |
+|----------|-------|-------|
+| 0 | 4 | Excellent |
+| 1–2 | 3 | Good |
+| 3–5 | 2 | Fair |
+| 6–10 | 1 | Poor |
+| 11+ | 0 | Critical |
+
+Disciplines without detectable signals are reported as "not assessed in this version."
+
+---
+
+## Development
+
+```powershell
+# Run all tests
+$env:PYTHONPATH = "."
+python -m pytest tests/ -q
+```
+
+Requirements: Python 3.11+, `pip install pytest pytest-cov rapidfuzz pyyaml msal azure-storage-file-datalake jinja2`
+
+---
+
+## Contracts
+
+- [`specs/001-modeling-readiness-assessor/contracts/findings-artifact.schema.md`](specs/001-modeling-readiness-assessor/contracts/findings-artifact.schema.md) — OneLake artifact JSON schema
+- [`specs/001-modeling-readiness-assessor/contracts/mcp-tools.md`](specs/001-modeling-readiness-assessor/contracts/mcp-tools.md) — MCP tool surface
+- [`specs/001-modeling-readiness-assessor/contracts/narrator-config.md`](specs/001-modeling-readiness-assessor/contracts/narrator-config.md) — narrator.config.yaml schema
+
+---
+
+## Background
+
+The original spec and architecture description is preserved in the [spec bundle README below](#spec-kit-artifacts).
+
+---
+
+<details>
+<summary>Spec Kit Artifacts (original README)</summary>
+
+This directory contains the Spec Kit-shaped artifacts for the Modeling Readiness Assessor agent, ready to drop into a Spec Kit-initialized project.
+
+See `specs/001-modeling-readiness-assessor/spec.md` for the full feature specification.
+
+</details>
 
 ## Distribution model
 

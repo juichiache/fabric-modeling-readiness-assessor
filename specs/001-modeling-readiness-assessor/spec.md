@@ -145,6 +145,14 @@ demos and onboarding work without a real customer tenant.
   artificial coupling that the customer-run distribution model can't
   sustain across drift in clone freshness.
 
+### Session 2026-05-20
+
+- Q: What is the default name-similarity threshold for candidate canonical entity conflict detection, and how should it be configurable? → A: 0.85 default (cosine similarity or equivalent normalized Levenshtein ratio), user-overridable via a repo configuration YAML file. High default minimizes false positives on first use; architects can lower it for tenants using abbreviated naming conventions.
+- Q: What does the narrator token cache opt-in look like, and where does the cache file live? → A: `token_cache: enabled` in repo config YAML; cache written to `.narrator-token-cache` in the repo root, gitignored by default, documented in the README for user auditability.
+- Q: How are maturity scores derived deterministically from findings? → A: Findings-count threshold table in a versioned scoring rubric YAML shipped in the repo (0 = 4, 1–2 = 3, 3–5 = 2, 6–10 = 1, 11+ = 0); human-readable and architect-reviewable before v1 ships.
+- Q: How does the bootstrap handle multiple installed AI hosts and missing host config files? → A: Auto-detect all supported installed hosts, configure each silently (creating the host config file if absent), print a summary of what was configured. Minimum friction; aligns with the 15-minute cold-start bar.
+- Q: When the provisioner finds a workspace name collision, does it fail or auto-suffix? → A: Fail clearly with a human-readable error and remediation suggestion pointing to the teardown notebook. Consistent workspace naming is required for pedagogical value; auto-suffixing is rejected.
+
 ## User Scenarios & Testing
 
 ### Primary user story
@@ -264,9 +272,14 @@ required, and the customer sees exactly what the agent saw.
   absent, scoping its scoring accordingly.
 
 - The synthetic-data provisioner is run against a tenant that already
-  has workspaces matching its target names. The agent MUST NOT collide;
-  it MUST namespace its workspaces (e.g., with a timestamp or a UUID
-  suffix) or fail clearly with a remediation suggestion.
+  has workspaces matching its target names. The provisioner MUST fail
+  clearly with a human-readable error and a remediation suggestion
+  (e.g., "A workspace named 'Contoso-CRM' already exists. Run the
+  teardown notebook to remove previously provisioned artifacts, or
+  update the demo workspace name in repo configuration."). The
+  provisioner MUST NOT auto-suffix workspace names; consistent naming
+  is required for pedagogical value in architect-led demos. The
+  teardown notebook (FR-012) is the canonical reset path.
 
 - A customer's ontology was generated automatically from a Power BI
   semantic model with known modeling debt. The agent surfaces this
@@ -284,8 +297,12 @@ required, and the customer sees exactly what the agent saw.
   NOT require Azure CLI to be installed or pre-authenticated on the
   user's machine. Tokens MUST be cached only for the duration of the
   session and MUST NOT be persisted to disk in a form that survives
-  process exit unless the user opts in explicitly via repo
-  configuration. The scanner MUST NOT require any separate
+  process exit unless the user opts in explicitly via the repo
+  configuration YAML file (`token_cache: enabled`). When enabled, the
+  cache MUST be written to a `.narrator-token-cache` file in the repo
+  root, which MUST be listed in the repository's `.gitignore` by
+  default. The cache file location MUST be documented in the README
+  so users can audit or delete it. The scanner MUST NOT require any separate
   authentication; it runs under the running user's Fabric session
   identity (the standard Fabric notebook delegated context exposed
   via `notebookutils` / `mssparkutils` and in-runtime authenticated
@@ -317,7 +334,14 @@ required, and the customer sees exactly what the agent saw.
   conflicts — same logical entity defined inconsistently across semantic
   models and ontologies — using configurable name-similarity rules
   seeded with synonyms for common entities (Customer, Account, Product,
-  Material, Vendor, Supplier, Order, Invoice, Asset, Site).
+  Material, Vendor, Supplier, Order, Invoice, Asset, Site). The default
+  name-similarity threshold is **0.85** (cosine similarity or equivalent
+  normalized Levenshtein ratio). The threshold MUST be overridable via a
+  repo configuration YAML file so architects can lower it for tenants that
+  use abbreviated naming conventions. Matches below the threshold MUST be
+  silently discarded; matches at or above the threshold MUST be surfaced
+  as "candidate canonical entity conflicts" pending user confirmation
+  before being scored as confirmed findings (see Edge Cases).
 
 - **FR-006**: For each candidate canonical entity conflict, the agent
   MUST surface specific points of disagreement: primary key choice, join
@@ -334,9 +358,15 @@ required, and the customer sees exactly what the agent saw.
 
 - **FR-008**: The agent MUST score each fully-assessed discipline on a
   0–4 maturity scale with a one-sentence rationale tied to specific
-  findings. The agent MUST score partially-assessed disciplines with
-  explicit caveats. The agent MUST mark non-assessed disciplines as
-  "not assessed in this version" with a brief explanation.
+  findings. Scores MUST be derived deterministically from a
+  findings-count threshold table defined in a versioned scoring rubric
+  YAML file shipped in the repository (e.g., 0 findings = 4,
+  1–2 = 3, 3–5 = 2, 6–10 = 1, 11+ = 0). The rubric MUST be
+  human-readable and reviewable by architects before v1 ships
+  (NFR-006). The agent MUST score partially-assessed disciplines with
+  explicit caveats noting which scope was not assessed. The agent MUST
+  mark non-assessed disciplines as "not assessed in this version" with
+  a brief explanation.
 
 - **FR-009**: The agent MUST generate four deliverable files into the
   workspace on user request: an executive summary, a detailed findings
@@ -391,12 +421,15 @@ required, and the customer sees exactly what the agent saw.
   immediately after `git clone` plus a single documented bootstrap
   step (e.g., `./bootstrap.ps1` on Windows, `./bootstrap.sh` on
   macOS/Linux) that installs Python/Node dependencies and registers
-  the MCP server with the user's chosen AI host. The bootstrap MUST
-  NOT require admin privileges and MUST NOT modify state outside the
-  cloned repo and the user's AI-host configuration file. The scanner
-  notebook MUST live in the repository at a documented path and MUST
-  be importable into Fabric via the standard Fabric notebook-import
-  flow without modification.
+  the MCP server with the user's AI host(s). The bootstrap MUST
+  auto-detect all supported AI hosts already installed on the machine,
+  configure each one silently (creating the host's MCP registration
+  file if it does not exist), and print a summary of which hosts were
+  configured. The bootstrap MUST NOT require admin privileges and MUST
+  NOT modify state outside the cloned repo and the user's AI-host
+  configuration files. The scanner notebook MUST live in the
+  repository at a documented path and MUST be importable into Fabric
+  via the standard Fabric notebook-import flow without modification.
 
 - **FR-016**: The narrator's MCP server MUST expose tools with stable,
   documented names (e.g., `list_runs`, `load_run`,

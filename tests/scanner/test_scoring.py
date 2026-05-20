@@ -91,7 +91,7 @@ class TestThresholdBands:
 
 
 class TestNotAssessedDisciplines:
-    """Layered Modeling and Steward-Loop Modeling return not_assessed with no signals."""
+    """Any discipline returns not_assessed when has_signals=False."""
 
     def test_layered_modeling_not_assessed_when_no_signals(self):
         result = compute_score("layered_modeling", finding_count=0, rubric=RUBRIC_V1, has_signals=False)
@@ -102,6 +102,18 @@ class TestNotAssessedDisciplines:
 
     def test_steward_loop_modeling_not_assessed_when_no_signals(self):
         result = compute_score("steward_loop_modeling", finding_count=0, rubric=RUBRIC_V1, has_signals=False)
+        assert result.assessment_status == "not_assessed"
+        assert result.score is None
+
+    def test_field_level_lineage_not_assessed_when_no_signals(self):
+        """FLL now uses the universal gate — was previously excluded."""
+        result = compute_score("field_level_lineage", finding_count=0, rubric=RUBRIC_V1, has_signals=False)
+        assert result.assessment_status == "not_assessed"
+        assert result.score is None
+
+    def test_canonical_entity_not_assessed_when_no_signals(self):
+        """CEM now uses the universal gate (fail-open fix)."""
+        result = compute_score("canonical_entity_modeling", finding_count=0, rubric=RUBRIC_V1, has_signals=False)
         assert result.assessment_status == "not_assessed"
         assert result.score is None
 

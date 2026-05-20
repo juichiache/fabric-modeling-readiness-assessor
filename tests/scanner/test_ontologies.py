@@ -93,9 +93,10 @@ class TestGracefulDegradation:
         ontologies = extract_ontologies_from_response({"value": []}, workspace_id="ws-001")
         assert ontologies == []
 
-    def test_handle_404_returns_empty_list(self):
-        result = handle_ontology_404(workspace_id="ws-001")
-        assert result == []
+    def test_handle_404_returns_not_provisioned_status(self):
+        ontologies, status = handle_ontology_404(workspace_id="ws-001")
+        assert ontologies == []
+        assert status == "not_provisioned"
 
     def test_handle_404_does_not_raise(self):
         # Should be callable without raising any exception.

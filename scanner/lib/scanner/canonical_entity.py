@@ -119,14 +119,39 @@ def extract_entity_definition(
         )
         if entity_type is None:
             return None
+
+        # Primary key proxy: properties flagged as source attribution or named with
+        # id/key/code tokens are the closest structural equivalent to a PK in an ontology.
+        _pk_tokens = {"id", "key", "code", "identifier", "ref", "pk"}
+        pk_proxy = [
+            p.name for p in entity_type.properties
+            if p.is_source_attribution
+            or any(tok in _normalize(p.name) for tok in _pk_tokens)
+        ]
+
+        # Map OntologyRelationship → Relationship (cardinality unknown for ontologies).
+        # Presence of relationships can still fire join_logic and filter_context dimensions.
+        from scanner.lib.scanner.findings import Relationship as Rel  # noqa: PLC0415
+        join_rels = [
+            Rel(
+                from_table=r.from_entity,
+                from_column="",
+                to_table=r.to_entity,
+                to_column="",
+                cardinality="unknown",
+                cross_filter_direction="unknown",
+            )
+            for r in entity_type.relationships
+        ]
+
         return EntityDefinition(
             logical_entity_name=entity_name,
             source_type="ontology",
             source_id=source.ontology_id,
             source_name=source.name,
-            primary_key_columns=[],
-            join_relationships=[],
-            measure_names=[],
+            primary_key_columns=pk_proxy,
+            join_relationships=join_rels,
+            measure_names=[],  # ontologies have no measures
             source_columns=[p.name for p in entity_type.properties],
             confidence=1.0,
         )
@@ -142,7 +167,7 @@ def _build_disagreements(definitions: list[EntityDefinition]) -> list[Disagreeme
     disagreements: list[Disagreement] = []
     first = definitions[0]
 
-    # primary_key
+    # primary_key — report both "keys differ" and "some definitions missing keys"
     pk_sets = [frozenset(d.primary_key_columns) for d in definitions if d.primary_key_columns]
     if len(pk_sets) >= 2 and len(set(pk_sets)) > 1:
         pk_desc = "; ".join(
@@ -154,7 +179,7 @@ def _build_disagreements(definitions: list[EntityDefinition]) -> list[Disagreeme
             dimension="primary_key",
             description=f"Primary keys differ across definitions: {pk_desc}",
         ))
-    elif any(not d.primary_key_columns for d in definitions):
+    if any(not d.primary_key_columns for d in definitions):
         disagreements.append(Disagreement(
             dimension="primary_key",
             description=(
@@ -216,7 +241,7 @@ def detect_canonical_entity_conflicts(
     ontologies: list[Ontology],
     threshold: float = DEFAULT_THRESHOLD,
     synonyms_path: Path = _SYNONYMS_FILE,
-) -> list[CanonicalEntityConflict]:
+) -> tuple[list[CanonicalEntityConflict], bool]:
     """Detect candidate canonical entity conflicts across all source artifacts.
 
     Args:
@@ -226,7 +251,10 @@ def detect_canonical_entity_conflicts(
         synonyms_path: Path to the entity-synonyms.yaml file.
 
     Returns:
-        List of CanonicalEntityConflict dataclasses; all confirmed=False.
+        A tuple of (conflicts, was_assessed) where was_assessed=False means the
+        scan was skipped (candidate count exceeded MAX_CANDIDATES) — the caller
+        must pass has_signals=False to the scorer so the workspace does not
+        receive a false Excellent score.
     """
     synonyms = _load_synonyms(synonyms_path)
 
@@ -240,7 +268,7 @@ def detect_canonical_entity_conflicts(
             candidates.append((entity_type.name, ontology))
 
     if not candidates:
-        return []
+        return [], True
 
     if len(candidates) > MAX_CANDIDATES:
         logger.warning(
@@ -250,7 +278,7 @@ def detect_canonical_entity_conflicts(
             len(candidates),
             MAX_CANDIDATES,
         )
-        return []
+        return [], False  # was_assessed=False → caller must pass has_signals=False
 
     # Group candidates by similarity / synonym clusters
     # Each cluster is a list of (entity_name, source) pairs
@@ -304,4 +332,4 @@ def detect_canonical_entity_conflicts(
             )
         )
 
-    return conflicts
+    return conflicts, True

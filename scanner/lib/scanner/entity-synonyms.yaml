@@ -6,10 +6,86 @@
 #
 # Format: each entry is a pair of alternative names (order-independent).
 # Add tenant-specific synonyms here when onboarding a new customer.
+#
+# These cover the most common enterprise cross-system naming divergences
+# (CRM vs ERP, SAP vs Salesforce, MDM vs warehouse, etc.).
+# A low conflict count is a prompt to ask: "do you call the same concept different
+# names in different systems?" — not a verdict that you don't.
 
 synonyms:
+  # Party / person
   - [Customer, Account]
+  - [Customer, Party]
+  - [Customer, Client]
+  - [Customer, Consumer]
+  - [Customer, Subscriber]
+  - [Account, Party]
+  - [Account, Client]
+  - [Contact, Person]
+  - [Contact, Individual]
+  - [Member, Subscriber]
+
+  # Product / item
   - [Product, Material]
+  - [Product, SKU]
+  - [Product, Item]
+  - [Product, Article]
+  - [Product, Good]
+  - [Product, Offering]
+  - [Material, SKU]
+  - [Item, Article]
+
+  # Vendor / supplier
   - [Vendor, Supplier]
+  - [Vendor, Partner]
+  - [Vendor, Provider]
+  - [Vendor, Counterparty]
+  - [Supplier, Partner]
+
+  # Transaction / order
   - [Order, Invoice]
-  - [Asset, Site]
+  - [Order, PurchaseOrder]
+  - [Order, SalesOrder]
+  - [Order, Transaction]
+  - [Order, Receipt]
+  - [Invoice, Transaction]
+  - [PurchaseOrder, SalesOrder]
+
+  # Finance
+  - [Cost, Expense]
+  - [Cost, Charge]
+  - [Cost, Fee]
+  - [Revenue, Income]
+  - [Revenue, Sales]
+  - [Revenue, Turnover]
+
+  # Time / date
+  - [Date, Period]
+  - [Date, Fiscal]
+  - [Date, Calendar]
+  - [Date, TimeKey]
+  - [Period, Fiscal]
+
+  # Location / site
+  - [Site, Facility]
+  - [Site, Location]
+  - [Site, Plant]
+  - [Site, Store]
+  - [Site, Branch]
+  - [Location, Region]
+  - [Store, Branch]
+
+  # Employee / person
+  - [Employee, Worker]
+  - [Employee, Staff]
+  - [Employee, Resource]
+  - [Employee, Person]
+  - [Employee, User]
+  - [Worker, Staff]
+
+  # Asset / equipment
+  - [Asset, Equipment]
+  - [Asset, Device]
+  - [Asset, Machine]
+  - [Asset, Property]
+  - [Equipment, Device]

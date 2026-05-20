@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # Minimum number of distinct is_source_attribution=True properties expected.
 # Four semantic roles: source-system identifier, source-record identifier,
 # extraction-timestamp, confidence score.
+# NOTE: These are documentation labels only — never used to positionally name
+# which specific roles are absent (that would require field-name inspection,
+# which contradicts the flag-based principle).
 EXPECTED_ATTRIBUTION_COUNT = 4
 
 ATTRIBUTION_ROLE_LABELS = [
@@ -33,12 +36,31 @@ ATTRIBUTION_ROLE_LABELS = [
 ]
 
 
+def _is_derived_entity(entity_type: EntityType) -> bool:
+    """Return True if this entity is in-platform derived (computed, no external source).
+
+    Derived entities (roll-ups, aggregates, virtual entities) have bindings but none
+    point to a raw source. Flagging them for missing source attribution is a false
+    positive — they have no external source to attribute.
+
+    Entities with no bindings at all are not considered derived — they are audited
+    normally (absence of bindings is itself a gap signal).
+    """
+    if not entity_type.bindings:
+        return False
+    return all(b.source_type not in ("semantic_model", "lakehouse_table")
+               for b in entity_type.bindings)
+
+
 def audit_field_level_lineage(ontologies: list[Ontology]) -> list[SourceAttributionGap]:
     """Audit all entity types across all ontologies for source-attribution gaps.
 
     An entity type is considered fully attributed when it has at least
     EXPECTED_ATTRIBUTION_COUNT properties with is_source_attribution=True
     AND at least one binding with has_temporal_source_marker=True.
+
+    Derived/computed entity types (all bindings non-source-backed) are skipped —
+    they have no external source to attribute.
 
     Returns:
         List of SourceAttributionGap for entity types that are not fully attributed.
@@ -47,6 +69,13 @@ def audit_field_level_lineage(ontologies: list[Ontology]) -> list[SourceAttribut
 
     for ontology in ontologies:
         for entity_type in ontology.entity_types:
+            if _is_derived_entity(entity_type):
+                logger.debug(
+                    "Skipping derived entity type %r in ontology %r — no source attribution expected.",
+                    entity_type.name,
+                    ontology.ontology_id,
+                )
+                continue
             gap = _check_entity_type(entity_type, ontology.ontology_id)
             if gap is not None:
                 gaps.append(gap)
@@ -59,31 +88,21 @@ def _check_entity_type(entity_type: EntityType, ontology_id: str) -> SourceAttri
     attribution_props = [p for p in entity_type.properties if p.is_source_attribution]
     attribution_count = len(attribution_props)
 
-    has_temporal_binding = any(b.has_temporal_source_marker for b in entity_type.bindings)
-
-    # Also check if any attribution property carries temporal semantics
-    has_temporal_property = any(
-        "time" in p.name.lower()
-        or "timestamp" in p.name.lower()
-        or "date" in p.name.lower()
-        or "extract" in p.name.lower()
-        for p in attribution_props
-    )
-
-    has_temporal = has_temporal_binding or has_temporal_property
+    # Flag-based only — no name-based fallback (Framework Principle VI).
+    has_temporal = any(b.has_temporal_source_marker for b in entity_type.bindings)
 
     missing: list[str] = []
 
-    # Check we have enough attribution properties for the 4 expected roles
     if attribution_count < EXPECTED_ATTRIBUTION_COUNT:
         needed = EXPECTED_ATTRIBUTION_COUNT - attribution_count
-        # Report the conceptual roles that appear to be missing
-        # (cannot determine exact roles without prescribing names)
-        missing.extend(ATTRIBUTION_ROLE_LABELS[attribution_count : attribution_count + needed])
+        # Report count only — positional role labeling would be fictional precision
+        # since we cannot determine which specific roles are absent without name inspection.
+        missing.append(
+            f"source_attribution_property ({needed} of {EXPECTED_ATTRIBUTION_COUNT} missing)"
+        )
 
     if not has_temporal:
-        if "extraction_timestamp" not in missing:
-            missing.append("extraction_timestamp")
+        missing.append("temporal_source_marker")
 
     if not missing:
         return None

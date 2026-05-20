@@ -57,16 +57,19 @@ def _get_with_retry(url: str, headers: dict, *, timeout: int = 60) -> "requests.
     raise RuntimeError("Unreachable")
 
 
+OntologyExtractionStatus = str  # "assessed" | "not_provisioned" | "failed" | "empty"
+
+
 def extract_ontologies(  # pragma: no cover
     workspace_id: str,
     token_fn: Callable[[], str],
     raw_writer=None,
-) -> list[Ontology]:
+) -> tuple[list[Ontology], OntologyExtractionStatus]:
     """Extract all Fabric IQ ontologies from a workspace via the Fabric REST API (preview).
 
-    Paginates via continuationToken in the response body. Catches HTTP 404
-    (Fabric IQ not yet provisioned) and returns an empty list so the scanner
-    can mark the discipline as not_assessed. Retries transient 429/503 errors.
+    Paginates via continuationToken in the response body. Returns a status alongside
+    the ontology list so callers can distinguish infrastructure failure from genuine
+    absence of ontologies.
 
     Args:
         workspace_id: Fabric workspace GUID.
@@ -77,7 +80,11 @@ def extract_ontologies(  # pragma: no cover
             raw/ontologies/<ontology-id>.json if provided.
 
     Returns:
-        List of Ontology dataclasses; empty if Fabric IQ is unavailable.
+        (ontologies, status) where status is one of:
+            "assessed"        — ≥1 ontologies extracted successfully
+            "empty"           — extracted successfully, workspace has no ontologies
+            "not_provisioned" — API returned 404 (Fabric IQ not enabled)
+            "failed"          — extraction raised an unexpected exception
     """
     try:
         headers = {"Authorization": f"Bearer {token_fn()}"}
@@ -116,7 +123,11 @@ def extract_ontologies(  # pragma: no cover
             else:
                 url = None
 
-        return extract_ontologies_from_response({"value": all_items}, workspace_id=workspace_id)
+        ontologies = extract_ontologies_from_response({"value": all_items}, workspace_id=workspace_id)
+        if not ontologies:
+            logger.info("Ontology extraction succeeded for workspace %s but no ontologies found.", workspace_id)
+            return [], "empty"
+        return ontologies, "assessed"
 
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -125,13 +136,13 @@ def extract_ontologies(  # pragma: no cover
             workspace_id,
             exc,
         )
-        return []
+        return [], "failed"
 
 
-def handle_ontology_404(workspace_id: str) -> list[Ontology]:
-    """Return empty list when Fabric IQ is absent (404). Enables not_assessed scoring."""
+def handle_ontology_404(workspace_id: str) -> tuple[list[Ontology], OntologyExtractionStatus]:
+    """Return ([], 'not_provisioned') when Fabric IQ is absent (404)."""
     logger.info("Ontology extraction skipped for workspace %s (404 — Fabric IQ absent).", workspace_id)
-    return []
+    return [], "not_provisioned"
 
 
 def extract_ontologies_from_response(
@@ -165,10 +176,38 @@ def extract_ontologies_from_response(
     return ontologies
 
 
+def _probe_api_fields(raw_entity_type: dict) -> None:
+    """Log presence/absence of expected API fields for early failure detection.
+
+    Called once on the first entity type parsed from a real API response.
+    Output is INFO so it appears in notebook logs and CI runs.
+    """
+    props = raw_entity_type.get("properties", [])
+    if props and isinstance(props[0], dict):
+        has_source_attr = "isSourceAttribution" in props[0]
+        logger.info(
+            "API field probe — isSourceAttribution present in properties: %s. "
+            "Field-Level Lineage discipline relies on this field.",
+            has_source_attr,
+        )
+    bindings = raw_entity_type.get("bindings", [])
+    if bindings and isinstance(bindings[0], dict):
+        has_temporal = "hasTemporalSourceMarker" in bindings[0]
+        logger.info(
+            "API field probe — hasTemporalSourceMarker present in bindings: %s. "
+            "Field-Level Lineage temporal check relies on this field.",
+            has_temporal,
+        )
+
+
 def _extract_entity_types(raw_types: list[dict]) -> list[EntityType]:
     entity_types: list[EntityType] = []
+    _probed = False
     for t in raw_types:
         try:
+            if not _probed:
+                _probe_api_fields(t)
+                _probed = True
             properties = _extract_properties(t.get("properties", []))
             relationships = _extract_relationships(t.get("relationships", []))
             bindings = _extract_bindings(t.get("bindings", []))

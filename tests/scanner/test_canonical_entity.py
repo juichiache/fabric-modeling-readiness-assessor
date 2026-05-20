@@ -56,7 +56,7 @@ def manufacturing_ontology():
 
 class TestSimilarityThreshold:
     def test_customer_and_customer_match_at_default_threshold(self, three_models, manufacturing_ontology):
-        conflicts = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
+        conflicts, _ = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
         entity_names = {c.logical_entity_name for c in conflicts}
         # CRM "Customer" + Invoicing "Customer" → exact match → conflict detected
         assert any("Customer" in n or "customer" in n.lower() for n in entity_names)
@@ -75,7 +75,7 @@ class TestSimilarityThreshold:
 
     def test_custom_threshold_excludes_near_matches(self, three_models, manufacturing_ontology):
         # At threshold 1.0, only exact matches qualify — no near-misses
-        conflicts = detect_canonical_entity_conflicts(
+        conflicts, _ = detect_canonical_entity_conflicts(
             three_models, manufacturing_ontology, threshold=1.0
         )
         for c in conflicts:
@@ -86,25 +86,25 @@ class TestSimilarityThreshold:
 
 class TestConflictAssembly:
     def test_customer_conflict_has_at_least_two_definitions(self, three_models, manufacturing_ontology):
-        conflicts = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
+        conflicts, _ = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
         customer_conflicts = [c for c in conflicts if "customer" in c.logical_entity_name.lower()]
         assert len(customer_conflicts) >= 1
         customer_conflict = customer_conflicts[0]
         assert len(customer_conflict.definitions) >= 2
 
     def test_conflict_sources_are_different_artifacts(self, three_models, manufacturing_ontology):
-        conflicts = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
+        conflicts, _ = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
         customer_conflicts = [c for c in conflicts if "customer" in c.logical_entity_name.lower()]
         conflict = customer_conflicts[0]
         source_ids = {d.source_id for d in conflict.definitions}
         assert len(source_ids) >= 2
 
     def test_all_new_conflicts_unconfirmed(self, three_models, manufacturing_ontology):
-        conflicts = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
+        conflicts, _ = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
         assert all(c.confirmed is False for c in conflicts)
 
     def test_conflict_id_is_stable_string(self, three_models, manufacturing_ontology):
-        conflicts = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
+        conflicts, _ = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
         for c in conflicts:
             assert isinstance(c.conflict_id, str)
             assert len(c.conflict_id) > 0
@@ -113,7 +113,7 @@ class TestConflictAssembly:
 class TestDisagreementDimensions:
     def test_primary_key_disagreement_detected(self, three_models, manufacturing_ontology):
         # CRM: CustomerGUID, Invoicing: InvoiceCustomerID — different PKs
-        conflicts = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
+        conflicts, _ = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
         customer_conflicts = [c for c in conflicts if "customer" in c.logical_entity_name.lower()]
         assert customer_conflicts, "No Customer conflict found"
         conflict = customer_conflicts[0]
@@ -121,7 +121,7 @@ class TestDisagreementDimensions:
         assert "primary_key" in dims
 
     def test_disagreement_has_description(self, three_models, manufacturing_ontology):
-        conflicts = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
+        conflicts, _ = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
         for c in conflicts:
             for d in c.disagreements:
                 assert isinstance(d.description, str)
@@ -131,7 +131,7 @@ class TestDisagreementDimensions:
 class TestSynonymMatching:
     def test_customer_account_synonym_pair_detected(self, three_models, manufacturing_ontology):
         # ERP has "Account" (synonym for Customer), CRM/Invoicing has "Customer"
-        conflicts = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
+        conflicts, _ = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
         # Any conflict grouping Customer + Account (or vice versa) is acceptable
         all_entity_names = set()
         for c in conflicts:
@@ -142,7 +142,7 @@ class TestSynonymMatching:
         assert "customer" in all_entity_names or "account" in all_entity_names
 
     def test_product_material_synonym_detected(self, three_models, manufacturing_ontology):
-        conflicts = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
+        conflicts, _ = detect_canonical_entity_conflicts(three_models, manufacturing_ontology)
         all_def_names = {
             d.logical_entity_name.lower()
             for c in conflicts
@@ -187,7 +187,7 @@ class TestCandidateCap:
                 tables=[Table(name=f"Table_{model_id}_{i}") for i in range(n)],
             )
         models = [make_model("model-A", half), make_model("model-B", half)]
-        result = detect_canonical_entity_conflicts(models, [])
+        result, was_assessed = detect_canonical_entity_conflicts(models, [])
         # Should return empty, not hang
         assert result == []
 
@@ -200,5 +200,6 @@ class TestCandidateCap:
             workspace_id="ws",
             tables=[Table(name=f"T{i}") for i in range(10)],
         )
-        result = detect_canonical_entity_conflicts([model], [])
+        result, was_assessed = detect_canonical_entity_conflicts([model], [])
         assert isinstance(result, list)
+        assert was_assessed is True

@@ -3,9 +3,8 @@
 Loads scoring-rubric.yaml at call time and derives MaturityScore deterministically
 from finding counts. Raises RuntimeError on missing rubric or unknown schema_version.
 
-Disciplines that require explicit signals (layered_modeling, steward_loop_modeling)
-must pass has_signals=True to receive an assessed status; otherwise they return
-not_assessed with score=None.
+Any discipline can receive not_assessed by passing has_signals=False.
+This is the universal gate — no hardcoded per-discipline list.
 """
 from __future__ import annotations
 
@@ -16,7 +15,6 @@ import yaml
 from scanner.lib.scanner.findings import MaturityScore
 
 SUPPORTED_SCHEMA_VERSIONS = {"1.0"}
-SIGNAL_REQUIRED_DISCIPLINES = {"layered_modeling", "steward_loop_modeling"}
 
 
 def load_rubric(rubric_path: str) -> dict:
@@ -47,9 +45,9 @@ def compute_score(
         discipline: Exact canonical discipline name.
         finding_count: Number of findings in this discipline.
         rubric: Parsed rubric dict (from load_rubric or inline test fixture).
-        has_signals: For signal-gated disciplines (layered_modeling,
-            steward_loop_modeling), pass False when no signals were present
-            in the scanned workspace to return not_assessed.
+        has_signals: Pass False when the discipline could not be assessed
+            (no ontologies, skipped due to size, extraction failed, etc.)
+            to return not_assessed rather than a potentially false score.
         rationale: Optional override rationale string.
 
     Raises:
@@ -63,7 +61,7 @@ def compute_score(
             f"Supported versions: {sorted(SUPPORTED_SCHEMA_VERSIONS)}"
         )
 
-    if discipline in SIGNAL_REQUIRED_DISCIPLINES and not has_signals:
+    if not has_signals:
         return MaturityScore(
             discipline=discipline,
             score=None,
@@ -75,6 +73,19 @@ def compute_score(
             ),
             rubric_version=version,
         )
+
+    # KeyError propagates naturally if discipline is absent — callers catch it.
+    thresholds = rubric["disciplines"][discipline]["thresholds"]
+    score = _resolve_score(finding_count, thresholds)
+
+    return MaturityScore(
+        discipline=discipline,
+        score=score,
+        assessment_status="assessed",
+        finding_count=finding_count,
+        rationale=rationale or _default_rationale(discipline, finding_count, score),
+        rubric_version=version,
+    )
 
     # KeyError propagates naturally if discipline is absent — callers catch it.
     thresholds = rubric["disciplines"][discipline]["thresholds"]

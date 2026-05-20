@@ -187,3 +187,71 @@ class TestEmptyOntologies:
     def test_ontology_with_no_entity_types_returns_empty(self):
         o = Ontology("o-empty", "Empty", "ws", entity_types=[])
         assert audit_field_level_lineage([o]) == []
+
+
+class TestDerivedEntityExclusion:
+    """Derived/computed entities should not be audited for source attribution."""
+
+    def _make_ontology(self, entity_type):
+        return Ontology("o-derived", "Derived", "ws-001", entity_types=[entity_type])
+
+    def test_derived_entity_no_gap(self):
+        """Entity whose bindings are all non-source-backed → skip attribution check."""
+        from scanner.lib.scanner.field_lineage import _is_derived_entity
+        et = EntityType(
+            name="ComputedRollup",
+            properties=[],  # no source attribution props
+            bindings=[DataBinding("b-1", "computed", "derived-id", has_temporal_source_marker=False)],
+        )
+        assert _is_derived_entity(et) is True
+        gaps = audit_field_level_lineage([self._make_ontology(et)])
+        assert gaps == []
+
+    def test_source_backed_entity_audited(self):
+        """Entity with semantic_model binding → normal audit, gaps expected."""
+        from scanner.lib.scanner.field_lineage import _is_derived_entity
+        et = EntityType(
+            name="SourceEntity",
+            properties=[],
+            bindings=[DataBinding("b-1", "semantic_model", "m-001", has_temporal_source_marker=False)],
+        )
+        assert _is_derived_entity(et) is False
+        gaps = audit_field_level_lineage([self._make_ontology(et)])
+        assert len(gaps) == 1
+
+    def test_entity_with_no_bindings_is_audited(self):
+        """Entity with no bindings at all → not derived, audit normally."""
+        from scanner.lib.scanner.field_lineage import _is_derived_entity
+        et = EntityType(name="NoBind", properties=[], bindings=[])
+        assert _is_derived_entity(et) is False
+
+    def test_mixed_bindings_not_derived(self):
+        """If any binding is source-backed, entity is not derived."""
+        from scanner.lib.scanner.field_lineage import _is_derived_entity
+        et = EntityType(
+            name="Mixed",
+            properties=[],
+            bindings=[
+                DataBinding("b-1", "computed", "x", has_temporal_source_marker=False),
+                DataBinding("b-2", "semantic_model", "m-001", has_temporal_source_marker=False),
+            ],
+        )
+        assert _is_derived_entity(et) is False
+
+
+class TestMissingAttributionReporting:
+    """Count-based reporting without fictional positional role labels."""
+
+    def test_missing_reported_as_count_string(self):
+        et = EntityType(
+            name="Sparse",
+            properties=[OntologyProperty("src", "string", is_source_attribution=True)],
+            bindings=[DataBinding("b", "semantic_model", "m", has_temporal_source_marker=True)],
+        )
+        o = Ontology("o-1", "O", "ws", entity_types=[et])
+        gaps = audit_field_level_lineage([o])
+        assert len(gaps) == 1
+        # Must mention count, must not reference a specific role by position
+        missing_str = gaps[0].missing_attribution_types[0]
+        assert "3 of 4" in missing_str
+        assert "source_attribution_property" in missing_str

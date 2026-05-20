@@ -19,8 +19,11 @@ from typing import Any
 import requests
 
 FABRIC_API = "https://api.fabric.microsoft.com/v1"
-POLL_INTERVAL_SEC = 10
-MAX_WAIT_SEC = 30 * 60  # 30-minute ceiling; scanner typically completes in < 5 min
+POLL_INTERVAL_SEC = 10       # starting poll interval
+POLL_BACKOFF_STEP_SEC = 10   # grow by this much per successive poll
+POLL_MAX_INTERVAL_SEC = 60   # cap
+MAX_WAIT_SEC = 30 * 60       # 30-minute ceiling; scanner typically completes in < 5 min
+_TRIGGER_MAX_RETRIES = 3     # retry trigger POST on transient failures
 
 
 def run_scanner(
@@ -72,7 +75,17 @@ def run_scanner(
         f"{FABRIC_API}/workspaces/{workspace_id}/items/{notebook_id}"
         f"/jobs/instances?jobType=RunNotebook"
     )
-    resp = requests.post(trigger_url, json=body, headers=headers, timeout=30)
+
+    # Retry the trigger POST on transient failures
+    resp = None
+    for attempt in range(1, _TRIGGER_MAX_RETRIES + 1):
+        resp = requests.post(trigger_url, json=body, headers=headers, timeout=30)
+        if resp.status_code in (200, 202):
+            break
+        if resp.status_code in (429, 503) and attempt < _TRIGGER_MAX_RETRIES:
+            time.sleep(2.0 * attempt)
+            continue
+        break  # Non-retryable error
 
     if resp.status_code not in (200, 202):
         return {
@@ -97,15 +110,18 @@ def run_scanner(
             ),
         }
 
-    # Poll until terminal state or timeout
+    # Poll until terminal state or timeout; use linear backoff on the interval
     status_url = (
         f"{FABRIC_API}/workspaces/{workspace_id}/items/{notebook_id}"
         f"/jobs/instances/{job_instance_id}"
     )
     elapsed = 0
+    current_interval = POLL_INTERVAL_SEC
     while elapsed < MAX_WAIT_SEC:
-        time.sleep(POLL_INTERVAL_SEC)
-        elapsed += POLL_INTERVAL_SEC
+        time.sleep(current_interval)
+        elapsed += current_interval
+        # Grow interval linearly, capped at POLL_MAX_INTERVAL_SEC
+        current_interval = min(current_interval + POLL_BACKOFF_STEP_SEC, POLL_MAX_INTERVAL_SEC)
 
         poll_resp = requests.get(status_url, headers=headers, timeout=30)
         if poll_resp.status_code != 200:

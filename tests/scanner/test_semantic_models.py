@@ -128,3 +128,101 @@ class TestNoPrimaryKeyGrace:
         models = extract_semantic_models_from_response(response, workspace_id="ws-001")
         no_pk_table = next(t for t in models[0].tables if t.name == "NoKeyTable")
         assert no_pk_table.primary_key_columns == []
+
+
+class TestPerItemErrorIsolation:
+    """Verify one malformed item never aborts extraction of remaining valid items."""
+
+    def test_model_missing_id_is_skipped(self):
+        response = {
+            "value": [
+                {"name": "BadModel"},          # missing "id" → should be skipped
+                {"id": "good-id", "name": "GoodModel", "tables": [], "relationships": [], "measures": []},
+            ]
+        }
+        models = extract_semantic_models_from_response(response, workspace_id="ws-001")
+        assert len(models) == 1
+        assert models[0].model_id == "good-id"
+
+    def test_table_missing_name_is_skipped(self):
+        response = {
+            "value": [
+                {
+                    "id": "model-1",
+                    "name": "M1",
+                    "tables": [
+                        {"columns": []},            # missing "name" → skipped
+                        {"name": "GoodTable", "columns": []},
+                    ],
+                    "relationships": [],
+                    "measures": [],
+                }
+            ]
+        }
+        models = extract_semantic_models_from_response(response, workspace_id="ws-001")
+        assert len(models) == 1
+        assert len(models[0].tables) == 1
+        assert models[0].tables[0].name == "GoodTable"
+
+    def test_relationship_missing_from_table_is_skipped(self):
+        response = {
+            "value": [
+                {
+                    "id": "model-2",
+                    "name": "M2",
+                    "tables": [],
+                    "relationships": [
+                        {"fromColumn": "c", "toTable": "T", "toColumn": "c2"},  # missing fromTable
+                        {"fromTable": "A", "fromColumn": "id", "toTable": "B", "toColumn": "id"},
+                    ],
+                    "measures": [],
+                }
+            ]
+        }
+        models = extract_semantic_models_from_response(response, workspace_id="ws-001")
+        assert len(models[0].relationships) == 1
+
+
+class TestGetWithRetry:
+    """Verify _get_with_retry retries 429/503 and propagates non-retryable errors."""
+
+    def test_429_triggers_retry_then_succeeds(self, requests_mock):
+        from scanner.lib.scanner.semantic_models import _get_with_retry
+        import unittest.mock as mock
+
+        call_count = {"n": 0}
+
+        def side_effect(request, context):
+            call_count["n"] += 1
+            if call_count["n"] < 2:
+                context.status_code = 429
+            else:
+                context.status_code = 200
+            return {}
+
+        requests_mock.get("https://example.com/test", json=side_effect)
+
+        with mock.patch("time.sleep"):
+            resp = _get_with_retry("https://example.com/test", {})
+
+        assert resp.status_code == 200
+        assert call_count["n"] == 2
+
+    def test_503_retries_then_propagates_on_exhaustion(self, requests_mock):
+        from scanner.lib.scanner.semantic_models import _get_with_retry
+        import unittest.mock as mock
+
+        requests_mock.get("https://example.com/test503", status_code=503)
+
+        with mock.patch("time.sleep"):
+            resp = _get_with_retry("https://example.com/test503", {})
+
+        # After retries exhausted, returns the last 503 response
+        assert resp.status_code == 503
+
+    def test_non_retryable_error_returned_immediately(self, requests_mock):
+        from scanner.lib.scanner.semantic_models import _get_with_retry
+
+        requests_mock.get("https://example.com/test403", status_code=403)
+        resp = _get_with_retry("https://example.com/test403", {})
+        assert resp.status_code == 403

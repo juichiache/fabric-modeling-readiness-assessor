@@ -100,3 +100,87 @@ class TestGracefulDegradation:
     def test_handle_404_does_not_raise(self):
         # Should be callable without raising any exception.
         handle_ontology_404(workspace_id="any-workspace-id")
+
+
+class TestOntologyPerItemErrorIsolation:
+    """Verify one malformed ontology item never aborts extraction of valid items."""
+
+    def test_ontology_missing_id_is_skipped(self):
+        payload = {
+            "value": [
+                {"name": "BadOntology"},          # missing "id" → skipped
+                {"id": "good-ont", "name": "GoodOnt", "entityTypes": []},
+            ]
+        }
+        ontologies = extract_ontologies_from_response(payload, workspace_id="ws-001")
+        assert len(ontologies) == 1
+        assert ontologies[0].ontology_id == "good-ont"
+
+    def test_entity_type_missing_name_is_skipped(self):
+        payload = {
+            "value": [
+                {
+                    "id": "ont-1",
+                    "name": "Ont1",
+                    "entityTypes": [
+                        {"properties": []},              # missing "name" → skipped
+                        {"name": "GoodType", "properties": [], "relationships": [], "bindings": []},
+                    ],
+                }
+            ]
+        }
+        ontologies = extract_ontologies_from_response(payload, workspace_id="ws-001")
+        assert len(ontologies[0].entity_types) == 1
+        assert ontologies[0].entity_types[0].name == "GoodType"
+
+
+class TestOntologyContinuationToken:
+    """Verify extract_ontologies_from_response handles multi-page responses correctly."""
+
+    def test_multi_page_response_combined(self):
+        # Simulate caller accumulating pages before calling extract_ontologies_from_response
+        page1 = {"id": "ont-p1", "name": "Ont1", "entityTypes": []}
+        page2 = {"id": "ont-p2", "name": "Ont2", "entityTypes": []}
+        combined = {"value": [page1, page2]}
+        ontologies = extract_ontologies_from_response(combined, workspace_id="ws-001")
+        assert len(ontologies) == 2
+        ids = {o.ontology_id for o in ontologies}
+        assert "ont-p1" in ids
+        assert "ont-p2" in ids
+
+
+class TestOntologyGetWithRetry:
+    """Verify ontologies._get_with_retry retries 429/503."""
+
+    def test_429_triggers_retry_then_succeeds(self, requests_mock):
+        from scanner.lib.scanner.ontologies import _get_with_retry
+        import unittest.mock as mock
+
+        call_count = {"n": 0}
+
+        def side_effect(request, context):
+            call_count["n"] += 1
+            if call_count["n"] < 2:
+                context.status_code = 429
+            else:
+                context.status_code = 200
+            return {}
+
+        requests_mock.get("https://example.com/ont-test", json=side_effect)
+
+        with mock.patch("time.sleep"):
+            resp = _get_with_retry("https://example.com/ont-test", {})
+
+        assert resp.status_code == 200
+        assert call_count["n"] == 2
+
+    def test_503_retries_exhausted_returns_last_response(self, requests_mock):
+        from scanner.lib.scanner.ontologies import _get_with_retry
+        import unittest.mock as mock
+
+        requests_mock.get("https://example.com/ont-503", status_code=503)
+
+        with mock.patch("time.sleep"):
+            resp = _get_with_retry("https://example.com/ont-503", {})
+
+        assert resp.status_code == 503

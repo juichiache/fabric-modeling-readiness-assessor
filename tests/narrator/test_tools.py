@@ -274,3 +274,81 @@ class TestRunScanner:
         assert result["status"] == "Failed"
         assert "Kernel crashed" in result["message"]
 
+    def test_trigger_retries_on_429_then_succeeds(self, requests_mock):
+        """Verify trigger POST is retried on 429 before succeeding."""
+        from narrator.mcp_server.tools.run_scanner import run_scanner
+        import unittest.mock as mock
+
+        job_id = "job-retry-001"
+        call_count = {"n": 0}
+
+        def side_effect(request, context):
+            call_count["n"] += 1
+            if call_count["n"] < 2:
+                context.status_code = 429
+                return {}
+            context.status_code = 202
+            context.headers["Location"] = (
+                f"https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances/{job_id}"
+            )
+            return {}
+
+        requests_mock.post(
+            "https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances",
+            json=side_effect,
+        )
+
+        with mock.patch("time.sleep"):  # don't actually sleep in tests
+            result = run_scanner(
+                workspace_id="ws",
+                notebook_id="nb",
+                fabric_token="tok",
+                poll=False,
+            )
+
+        assert result["status"] == "Submitted"
+        assert call_count["n"] == 2  # first 429, then success
+
+    def test_poll_uses_increasing_interval(self, requests_mock):
+        """Verify poll intervals grow with linear backoff (not fixed)."""
+        from narrator.mcp_server.tools.run_scanner import (
+            run_scanner,
+            POLL_INTERVAL_SEC,
+            POLL_BACKOFF_STEP_SEC,
+        )
+        import unittest.mock as mock
+
+        job_id = "job-backoff-001"
+        requests_mock.post(
+            "https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances",
+            status_code=202,
+            headers={
+                "Location": (
+                    f"https://api.fabric.microsoft.com/v1/workspaces/ws"
+                    f"/items/nb/jobs/instances/{job_id}"
+                )
+            },
+            json={},
+        )
+        # Succeed on second poll
+        poll_count = {"n": 0}
+
+        def poll_side_effect(request, context):
+            poll_count["n"] += 1
+            if poll_count["n"] < 2:
+                return {"status": "Running"}
+            return {"status": "Succeeded"}
+
+        requests_mock.get(
+            f"https://api.fabric.microsoft.com/v1/workspaces/ws/items/nb/jobs/instances/{job_id}",
+            json=poll_side_effect,
+        )
+
+        sleep_calls = []
+        with mock.patch("time.sleep", side_effect=lambda s: sleep_calls.append(s)):
+            run_scanner(workspace_id="ws", notebook_id="nb", fabric_token="tok", poll=True)
+
+        # First sleep = POLL_INTERVAL_SEC, second sleep should be larger
+        assert len(sleep_calls) >= 2
+        assert sleep_calls[0] == POLL_INTERVAL_SEC
+        assert sleep_calls[1] == POLL_INTERVAL_SEC + POLL_BACKOFF_STEP_SEC

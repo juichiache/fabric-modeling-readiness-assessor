@@ -162,6 +162,38 @@ class SourceAttributionGap:
 
 
 # ---------------------------------------------------------------------------
+# Layered Modeling entities (Discipline 3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LayeringGap:
+    """A semantic model that shows insufficient evidence of a layered staging architecture."""
+    gap_id: str
+    model_id: str
+    model_name: str
+    detected_layers: list[str]   # e.g. ["gold"] — layers whose vocabulary was found
+    missing_layers: list[str]    # e.g. ["bronze", "silver"] — layers with no vocabulary match
+    table_count: int
+
+
+# ---------------------------------------------------------------------------
+# Steward-Loop Modeling entities (Discipline 4)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class StewardLoopGap:
+    """A model or ontology scope with no detectable stewardship/feedback-loop vocabulary."""
+    gap_id: str
+    scope_id: str      # model_id or ontology_id
+    scope_type: str    # "semantic_model" | "ontology"
+    scope_name: str
+    missing_signals: list[str]   # conceptual roles absent, e.g. ["correction_table", "feedback_measure"]
+    detected_signals: list[str]  # stewardship vocabulary tokens that were found
+
+
+# ---------------------------------------------------------------------------
 # Findings and scoring (FR-008, FR-010, FR-019)
 # ---------------------------------------------------------------------------
 

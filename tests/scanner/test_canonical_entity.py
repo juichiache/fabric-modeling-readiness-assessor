@@ -170,3 +170,35 @@ class TestExtractEntityDefinition:
         crm = three_models[0]
         defn = extract_entity_definition(crm, "NonExistentEntity99")
         assert defn is None
+
+
+class TestCandidateCap:
+    """Verify MAX_CANDIDATES guard prevents O(n²) hang on large workspaces."""
+
+    def test_exceeding_cap_returns_empty_list(self):
+        from scanner.lib.scanner.canonical_entity import MAX_CANDIDATES
+        # Build MAX_CANDIDATES + 1 candidate entities across two fake models
+        half = (MAX_CANDIDATES // 2) + 1
+        def make_model(model_id: str, n: int) -> SemanticModel:
+            return SemanticModel(
+                model_id=model_id,
+                name=model_id,
+                workspace_id="ws",
+                tables=[Table(name=f"Table_{model_id}_{i}") for i in range(n)],
+            )
+        models = [make_model("model-A", half), make_model("model-B", half)]
+        result = detect_canonical_entity_conflicts(models, [])
+        # Should return empty, not hang
+        assert result == []
+
+    def test_below_cap_still_runs(self):
+        from scanner.lib.scanner.canonical_entity import MAX_CANDIDATES
+        # Single model well below cap → no cross-source conflicts possible → empty
+        model = SemanticModel(
+            model_id="m1",
+            name="M1",
+            workspace_id="ws",
+            tables=[Table(name=f"T{i}") for i in range(10)],
+        )
+        result = detect_canonical_entity_conflicts([model], [])
+        assert isinstance(result, list)

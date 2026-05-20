@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_THRESHOLD = 0.85
 _SYNONYMS_FILE = Path(__file__).parent / "entity-synonyms.yaml"
 
+# Guard against O(n²) fuzzy comparisons on very large workspaces.
+# 2 000 candidates → ~2M comparisons, which completes in < 2 s on typical hardware.
+# Beyond this threshold the comparison budget is unpredictable; skip and warn.
+MAX_CANDIDATES = 2_000
+
 DISAGREEMENT_DIMENSIONS = (
     "primary_key",
     "join_logic",
@@ -235,6 +240,16 @@ def detect_canonical_entity_conflicts(
             candidates.append((entity_type.name, ontology))
 
     if not candidates:
+        return []
+
+    if len(candidates) > MAX_CANDIDATES:
+        logger.warning(
+            "Candidate entity count (%d) exceeds MAX_CANDIDATES (%d). "
+            "Canonical entity conflict detection skipped to avoid O(n²) budget overrun. "
+            "Consider narrowing the scan scope or increasing MAX_CANDIDATES if appropriate.",
+            len(candidates),
+            MAX_CANDIDATES,
+        )
         return []
 
     # Group candidates by similarity / synonym clusters

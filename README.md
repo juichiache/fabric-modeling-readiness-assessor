@@ -27,13 +27,13 @@ When an AI tells you "Q3 revenue was $4.2M," can it say *where* that number came
 
 Fabric IQ has a standard way to record that provenance—essentially a chain of custody for every field. The scanner checks whether your ontology entities have that provenance information attached. When it's missing, the AI can produce answers but can't explain them, which breaks trust with anyone who needs to verify the output.
 
-### 3. Is the data organized in layers? *(checked in a future version)*
+### 3. Is the data organized in layers?
 
-Best-practice data platforms organize data in stages: raw data comes in, gets cleaned, then gets shaped into business-ready form. When those stages are missing or collapsed together, AI has a harder time distinguishing "the number as it arrived" from "the number after we applied business rules."
+Best-practice data platforms organize data in stages: raw data comes in, gets cleaned, then gets shaped into business-ready form. When those stages are missing or collapsed together, AI has a harder time distinguishing "the number as it arrived" from "the number after we applied business rules." The scanner looks for layer vocabulary (bronze/raw, silver/clean, gold/curated, and common synonyms) in your semantic model table names.
 
-### 4. Is there a process for catching and correcting data quality issues? *(checked in a future version)*
+### 4. Is there a process for catching and correcting data quality issues?
 
-AI systems that answer questions about data need a way to learn when their answers were wrong. Steward-loop modeling checks whether your data platform has feedback mechanisms—review processes, exception queues, correction workflows—that close the loop between an AI answer and the human who validates it.
+AI systems that answer questions about data need a way to learn when their answers were wrong. Steward-loop modeling checks whether your data platform has feedback mechanisms—review processes, exception queues, correction workflows—that close the loop between an AI answer and the human who validates it. The scanner looks for stewardship vocabulary (correction, feedback, audit, quality score, exception, flag, etc.) in your semantic model tables, measures, and ontology entities.
 
 ---
 
@@ -161,8 +161,8 @@ When the final cell completes, the findings artifact is in `Files/modeling-readi
 |------------|-----------------|
 | **Canonical entity modeling** | Inconsistent entity definitions across semantic models (mismatched keys, join logic, naming) |
 | **Field-level lineage** | Missing source-attribution properties in Fabric IQ ontology entity types |
-| **Layered modeling** | Absence of bronze/silver/gold staging layers *(not assessed in v1)* |
-| **Steward-loop modeling** | Absence of data stewardship feedback loops *(not assessed in v1)* |
+| **Layered modeling** | Absence of bronze/silver/gold staging layers |
+| **Steward-loop modeling** | Absence of data stewardship feedback loops |
 
 ### Scoring
 

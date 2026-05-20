@@ -1,4 +1,4 @@
 demo_workspace: false
 similarity_threshold: 0.85
 token_cache: false
-workspace_url: ""
+workspace_url: https://app.fabric.microsoft.com/groups/aabbccdd-1122-3344-5566-7788990011aa/overview

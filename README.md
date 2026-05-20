@@ -9,6 +9,35 @@
 
 **How it works:** You open your AI host (VS Code + GitHub Copilot, Claude Code, or Cursor), clone this repo, and tell the agent to run the scanner on your workspace. The agent deploys and triggers the scanner notebook via the Fabric API, polls until it completes, and reads the findings from OneLake to guide the assessment conversation. The notebook runs entirely inside Fabric using the Power BI REST API and Fabric IQ APIs — authenticated as you, with your existing workspace permissions. No new Entra app registration. No admin consent. No data leaves the tenant.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    User["🧑‍💼 User\n(AI host)"]
+
+    subgraph Local["Local Machine"]
+        Agent["Narrator Agent\n(MCP Server)"]
+    end
+
+    subgraph Fabric["Microsoft Fabric Tenant"]
+        API["Fabric Items API\n& Power BI REST API"]
+        Notebook["Scanner Notebook"]
+        PBI["Semantic Models\n(Power BI)"]
+        IQ["Ontologies\n(Fabric IQ)"]
+        OneLake["OneLake\nfindings artifact"]
+    end
+
+    User -->|"Run the scanner on workspace &lt;id&gt;"| Agent
+    Agent -->|"1 · Deploy notebook"| API
+    API --> Notebook
+    Agent -->|"2 · Trigger & poll"| API
+    Notebook -->|"3 · Scan"| PBI
+    Notebook -->|"3 · Scan"| IQ
+    Notebook -->|"4 · Write findings JSON"| OneLake
+    Agent -->|"5 · Read findings"| OneLake
+    Agent -->|"6 · Executive summary\nfindings · remediation plan"| User
+```
+
 ---
 
 ## What the scanner is actually looking for

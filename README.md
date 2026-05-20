@@ -1,96 +1,132 @@
-# Modeling Readiness Assessor
+# Fabric Modeling Readiness Assessor
 
-Diagnose Microsoft Fabric IQ modeling debt across four canonical disciplines using the Power BI REST API and Fabric IQ ontology API.
+**Who this is for:** Data architects and platform engineers preparing a Microsoft Fabric workspace for Fabric IQ (AI-powered Q&A and analytics). Before AI can answer questions about your data, your semantic models and ontologies need to be modeled correctly. This tool tells you exactly where the gaps are—and what to do about them.
 
-For the full quickstart, see **[`specs/001-modeling-readiness-assessor/quickstart.md`](specs/001-modeling-readiness-assessor/quickstart.md)**.
+**What it does:** In about fifteen minutes, it produces:
+- An **executive summary** scoring your workspace across four modeling disciplines
+- A **findings report** grouped by pattern, with specific models and fields called out
+- A **remediation plan** your team can execute against
 
----
-
-## Components
-
-| Component | Location | Description |
-|-----------|----------|-------------|
-| Scanner notebook | `scanner/modeling-readiness-scanner.ipynb` | Fabric notebook — enumerates models and ontologies, writes findings artifact to OneLake |
-| Narrator MCP server | `narrator/mcp_server/server.py` | MCP server — exposes 6 tools for reading findings artifacts |
-| Deliverables | `narrator/mcp_server/deliverables.py` | Renders 4 Jinja templates into `assessments/` |
-| Provisioner | `scanner/provisioner.ipynb` | Creates a demo workspace with deliberate modeling debt |
-| Provisioner teardown | `scanner/provisioner-teardown.ipynb` | Removes provisioner demo resources |
+**How it works:** A Fabric notebook scans your workspace using the Power BI REST API and Fabric IQ APIs. It writes a structured findings artifact to OneLake. You open the narrator in your AI host (VS Code + GitHub Copilot, Claude Code, or Cursor), and an agent reads those findings to guide the conversation, generate deliverables, and answer follow-up questions—grounded in evidence, not guesswork.
 
 ---
 
-## Four Canonical Disciplines
+## What the scanner is actually looking for
 
-| Discipline | Description | Assessment Status |
-|------------|-------------|-------------------|
-| Canonical entity modeling | Detects inconsistent entity definitions (primary keys, join logic, names) across semantic models | Assessed |
-| Field-level lineage | Detects missing source-attribution properties in Fabric IQ ontology entity types | Assessed |
-| Layered modeling | Detects absence of bronze/silver/gold staging layers | Not assessed in this version |
-| Steward-loop modeling | Detects absence of data stewardship feedback loops | Not assessed in this version |
+AI doesn't read your data—it reads *how your data is described*. If those descriptions are inconsistent, incomplete, or missing, the AI gives wrong answers or refuses to answer at all. The scanner checks four things:
+
+### 1. Are the same concepts defined the same way everywhere?
+
+Your organization probably has multiple reports, dashboards, and datasets. Each one has its own definition of "Customer," "Order," or "Revenue." If those definitions disagree—different keys, different join logic, different names for the same thing—the AI gets confused about which one to trust.
+
+The scanner looks across all your semantic models and flags cases where the same real-world concept appears to be defined inconsistently. Think of it like spell-checking, but for your data's logic.
+
+### 2. Can you trace where each number came from?
+
+When an AI tells you "Q3 revenue was $4.2M," can it say *where* that number came from? Which source system? Which table? Which transformation?
+
+Fabric IQ has a standard way to record that provenance—essentially a chain of custody for every field. The scanner checks whether your ontology entities have that provenance information attached. When it's missing, the AI can produce answers but can't explain them, which breaks trust with anyone who needs to verify the output.
+
+### 3. Is the data organized in layers? *(checked in a future version)*
+
+Best-practice data platforms organize data in stages: raw data comes in, gets cleaned, then gets shaped into business-ready form. When those stages are missing or collapsed together, AI has a harder time distinguishing "the number as it arrived" from "the number after we applied business rules."
+
+### 4. Is there a process for catching and correcting data quality issues? *(checked in a future version)*
+
+AI systems that answer questions about data need a way to learn when their answers were wrong. Steward-loop modeling checks whether your data platform has feedback mechanisms—review processes, exception queues, correction workflows—that close the loop between an AI answer and the human who validates it.
 
 ---
 
-## Bootstrap
+## Prerequisites
 
-**Windows (PowerShell):**
+- **Fabric workspace** with Viewer + Run notebook permissions
+- **Python 3.11+** on your local machine
+- **VS Code** with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) (primary path), or Claude Code, or Cursor
+
+---
+
+## Getting Started
+
+### Step 1 — Clone the narrator repository
+
+```bash
+git clone https://github.com/YOUR-ORG/fabric-modeling-readiness.git
+cd fabric-modeling-readiness/modeling-readiness-assessor
+```
+
+### Step 2 — Run bootstrap
+
+Bootstrap installs the narrator's Python dependencies and registers the MCP server with your AI host automatically.
+
+**Windows:**
 ```powershell
 .\bootstrap.ps1
 ```
 
-**macOS/Linux:**
+**macOS / Linux:**
 ```bash
 chmod +x bootstrap.sh && ./bootstrap.sh
 ```
 
-The bootstrap script:
-1. Installs narrator Python dependencies
-2. Detects installed AI hosts (VS Code, Claude Code, Cursor)
-3. Writes MCP registration files for each detected host
+Follow the prompts. When it finishes, you'll see confirmation that the MCP server is registered.
 
----
+### Step 3 — Upload the scoring rubric to your Fabric workspace
 
-## Supported AI Hosts
+The scanner notebook needs `scoring-rubric.yaml` at runtime. Upload it to your Fabric workspace's default lakehouse:
 
-| Host | MCP Config File |
-|------|----------------|
-| VS Code + GitHub Copilot | `.vscode/mcp.json` |
-| Claude Code | `claude_mcp_config.json` |
-| Cursor | `.cursor/mcp.json` |
+1. In the Fabric portal, open your workspace's default lakehouse
+2. Go to **Files**
+3. Upload `scoring-rubric.yaml` from the root of this repository
 
----
+### Step 4 — Import and run the scanner notebook
 
-## Running the Scanner
+1. In the Fabric portal, go to **My workspace** → **Import** → **Notebook**
+2. Import `scanner/modeling-readiness-scanner.ipynb`
+3. Open the imported notebook
+4. **Run Cell 0** — this installs the scanner library. When it finishes, restart the kernel.
+5. In **Cell 1**, set your workspace details:
+   ```python
+   WORKSPACE_ID = "your-workspace-guid"
+   WORKSPACE_URL = "https://app.fabric.microsoft.com/groups/your-workspace-guid/..."
+   ```
+6. Run all remaining cells top-to-bottom
 
-1. Import `scanner/modeling-readiness-scanner.ipynb` into your Fabric workspace
-2. Set `WORKSPACE_ID` and `WORKSPACE_URL` in cell 1
-3. Run all cells top-to-bottom
-4. The findings artifact is written to `Files/modeling-readiness/<run-id>/` in your workspace's OneLake
+When the final cell completes, the findings artifact has been written to `Files/modeling-readiness/<run-id>/` in your OneLake.
 
----
+### Step 5 — Configure the narrator
 
-## Configuration
-
-Edit `narrator.config.yaml` before running:
+Edit `narrator.config.yaml` in the repo root:
 
 ```yaml
 workspace_url: "https://app.fabric.microsoft.com/groups/<your-workspace-guid>/..."
-token_cache: false        # Set to true to cache MSAL tokens in .narrator-token-cache (gitignored)
-similarity_threshold: 0.85  # Entity name similarity threshold [0.5, 1.0]
-demo_workspace: false     # Set to true only to run provisioner/teardown notebooks
 ```
 
-### Token Cache
+That's the same URL you used in the notebook.
 
-When `token_cache: true`, the narrator caches MSAL tokens in `.narrator-token-cache` at the repo root.
-This file is gitignored and must never be committed.
+### Step 6 — Open your AI host and start the assessment
+
+1. Open VS Code in the `modeling-readiness-assessor/` folder
+2. Open GitHub Copilot Chat
+3. Switch to **Agent mode**
+4. Type: `@narrator assess this workspace`
+
+The narrator will read the findings artifact from OneLake and guide you through the assessment conversation. When you're done, type `write deliverables` — the agent will produce an executive summary, findings report, and remediation plan in an `assessments/` folder.
 
 ---
 
-## Scoring Rubric
+## What gets assessed
 
-Maturity scores follow a 0–4 scale defined in `scoring-rubric.yaml`:
+| Discipline | What it detects |
+|------------|-----------------|
+| **Canonical entity modeling** | Inconsistent entity definitions across semantic models (mismatched keys, join logic, naming) |
+| **Field-level lineage** | Missing source-attribution properties in Fabric IQ ontology entity types |
+| **Layered modeling** | Absence of bronze/silver/gold staging layers *(not assessed in v1)* |
+| **Steward-loop modeling** | Absence of data stewardship feedback loops *(not assessed in v1)* |
 
-| Findings | Score | Label |
-|----------|-------|-------|
+### Scoring
+
+| Findings count | Score | Label |
+|----------------|-------|-------|
 | 0 | 4 | Excellent |
 | 1–2 | 3 | Good |
 | 3–5 | 2 | Fair |
@@ -101,196 +137,75 @@ Disciplines without detectable signals are reported as "not assessed in this ver
 
 ---
 
+## Supported AI hosts
+
+| Host | Setup |
+|------|-------|
+| VS Code + GitHub Copilot | Automatic (bootstrap writes `.vscode/mcp.json`) |
+| Claude Code | Automatic (bootstrap writes `claude_mcp_config.json`) |
+| Cursor | Automatic (bootstrap writes `.cursor/mcp.json`) |
+
+---
+
+## Configuration reference
+
+`narrator.config.yaml`:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `workspace_url` | `""` | Fabric workspace URL — required |
+| `token_cache` | `false` | Cache MSAL tokens in `.narrator-token-cache` (gitignored) |
+| `similarity_threshold` | `0.85` | Entity name similarity threshold `[0.5, 1.0]` |
+| `demo_workspace` | `false` | Set `true` only when running the provisioner/teardown notebooks |
+
+---
+
+## Troubleshooting
+
+**"WORKSPACE_ID not set" error in the notebook**  
+Set `WORKSPACE_ID` and `WORKSPACE_URL` in Cell 1 before running.
+
+**Cell 0 pip install fails in Fabric**  
+Make sure `REPO_URL` in Cell 0 points to the correct GitHub URL for this repo. The repo must be publicly accessible or reachable from the Fabric notebook runtime.
+
+**MCP server not appearing in VS Code**  
+Rerun bootstrap. If VS Code was open during bootstrap, reload the window (`Ctrl+Shift+P` → *Developer: Reload Window*).
+
+**"No findings artifact" error from the narrator**  
+The scanner notebook must complete successfully first. Check that `Files/modeling-readiness/` exists in your OneLake and that `narrator.config.yaml` has the correct `workspace_url`.
+
+**Authentication prompt on first narrator run**  
+The narrator uses Microsoft Entra device-code flow to read OneLake (read-only scope). Follow the prompt to sign in. Set `token_cache: true` in `narrator.config.yaml` to avoid re-authenticating on every run.
+
+---
+
+## What you can build on top of this
+
+The framework is designed to be extended:
+
+- **Add disciplines.** Each discipline is a discrete module in `scanner/lib/scanner/`. Add vertical-specific entities or deeper signals without touching the rest.
+- **Consume findings downstream.** Findings emit as structured JSON (`findings.json` in OneLake). Downstream agents—remediation trackers, Planner integrations, empirical assessors—can read them directly.
+- **Adopt the framework without the agent.** The four disciplines and ten patterns are documented independently in `docs/patterns.md`. Usable on their own without running the agent.
+
+---
+
 ## Development
 
 ```powershell
-# Run all tests
+# Install dev dependencies
+pip install pytest pytest-cov rapidfuzz pyyaml msal azure-storage-file-datalake jinja2
+
+# Run tests
 $env:PYTHONPATH = "."
 python -m pytest tests/ -q
 ```
 
-Requirements: Python 3.11+, `pip install pytest pytest-cov rapidfuzz pyyaml msal azure-storage-file-datalake jinja2`
-
 ---
 
-## Contracts
+## License
 
-- [`specs/001-modeling-readiness-assessor/contracts/findings-artifact.schema.md`](specs/001-modeling-readiness-assessor/contracts/findings-artifact.schema.md) — OneLake artifact JSON schema
-- [`specs/001-modeling-readiness-assessor/contracts/mcp-tools.md`](specs/001-modeling-readiness-assessor/contracts/mcp-tools.md) — MCP tool surface
-- [`specs/001-modeling-readiness-assessor/contracts/narrator-config.md`](specs/001-modeling-readiness-assessor/contracts/narrator-config.md) — narrator.config.yaml schema
+MIT — see [LICENSE](LICENSE).
 
----
-
-## Background
-
-The original spec and architecture description is preserved in the [spec bundle README below](#spec-kit-artifacts).
-
----
-
-<details>
-<summary>Spec Kit Artifacts (original README)</summary>
-
-This directory contains the Spec Kit-shaped artifacts for the Modeling Readiness Assessor agent, ready to drop into a Spec Kit-initialized project.
-
-See `specs/001-modeling-readiness-assessor/spec.md` for the full feature specification.
-
-</details>
-
-## Distribution model
-
-The Modeling Readiness Assessor ships as **two cooperating components**,
-not as a GitHub Copilot extension, not as a VS Code extension, not as
-any marketplace-distributed package:
-
-1. **Scanner** — a Fabric notebook the customer imports into their
-   Fabric workspace and runs there. It executes the deterministic
-   Modeling Readiness scans against Fabric/Power BI APIs from inside
-   the tenant under the customer's own Fabric workspace identity, and
-   writes a versioned findings artifact (JSON plus raw evidence) to
-   `Files/modeling-readiness/<run-id>/` in OneLake. No new Entra app
-   registration; no admin consent; no credential prompts.
-
-2. **Narrator** — a cloneable Git repository the customer clones on
-   their own machine and opens in whatever MCP-capable AI host they
-   already use. The narrator's MCP server reads the scanner's OneLake
-   findings artifact (OneLake-read scope only — not broad Fabric or
-   Power BI scopes) and surfaces findings to an LLM-driven persona,
-   which conducts the conversation and writes structured deliverables
-   into a timestamped folder in the user's clone.
-
-The narrator repository is constituted by:
-
-- **Agent-customization files** (`AGENTS.md`, skill files, prompt
-  files) that define the agent persona, vocabulary discipline, and
-  conversational flow.
-- **An MCP server** that exposes tools reading the OneLake findings
-  artifact. The MCP tool surface is the physical enforcement of the
-  constitution's diagnostic-determinism principle for the narrator:
-  the LLM cannot fabricate findings, it can only call tools that read
-  the artifact.
-- **The scanner notebook** (versioned alongside the narrator so the
-  schema contract stays in sync).
-- **Host registration files** (e.g., `.vscode/mcp.json` for VS Code +
-  GitHub Copilot; equivalents for other supported hosts) so the MCP
-  server is discovered automatically after clone.
-- **A synthetic-data provisioner CLI** that creates a demo Fabric
-  workspace modeled on a mid-market industrial manufacturer.
-- **Deliverable templates** that the agent fills in and writes to a
-  timestamped folder in the user's clone.
-
-GitHub Copilot in VS Code is the primary documented happy path for
-the narrator. Claude Code, Cursor, JetBrains AI, and github.com chat
-with MCP are supported as best-effort surfaces.
-
-The long-term destination for the scanner is a first-party Fabric
-workload (a native "Assess Modeling Readiness" action in the Fabric
-workspace UI), removing the notebook-import step entirely. v1 ships
-the scanner as a notebook deliberately, to avoid blocking on Fabric
-PM/release alignment; the OneLake findings artifact schema is
-designed so the narrator keeps working unchanged when that migration
-happens.
-
-## Layout
-
-```
-.specify/
-  memory/
-    constitution.md         # Non-negotiable project principles
-  specs/
-    001-modeling-readiness-assessor/
-      spec.md               # The feature specification
-docs/
-  patterns.md               # The 10 Modeling Readiness Patterns
-```
-
-## How to use these files
-
-1. Initialize a Spec Kit project somewhere convenient:
-
-   ```
-   uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
-   specify init modeling-readiness-assessor
-   cd modeling-readiness-assessor
-   ```
-
-2. Copy the three files from this bundle into the matching paths in
-   the initialized project.
-
-3. Resolve any remaining `[NEEDS CLARIFICATION]` markers in
-   `spec.md` before running Spec Kit commands. (Currently: none
-   open.)
-
-4. Run, in order:
-
-   ```
-   /speckit.constitution
-   /speckit.clarify
-   /speckit.plan
-   /speckit.analyze
-   /speckit.tasks
-   /speckit.implement
-   ```
-
-## Status
-
-These files reflect the spec as drafted before the most recent
-conversation about identity propagation, lightweight data-layer
-inspection, two-agent split, action surface expansion, and
-post-assessment user actions. None of those modifications are
-incorporated yet. Treat this as the v1 spec; iterate from here.
-
-## Resolved decisions
-
-The following items were open in the original draft and are now
-resolved in `spec.md`:
-
-- **Distribution surface**: cloneable Git repository, IDE/host-
-  agnostic via MCP and agent-customization files. No published
-  extension in v1. Driven by the customer-run distribution model:
-  architects guide customers to run the agent themselves on their own
-  Fabric tenants, so marketplace install friction and host lock-in
-  are unacceptable.
-- **Authentication**: Microsoft Entra ID device code flow only,
-  brokered by MSAL inside the MCP server, scoped to **OneLake read
-  only** (no broad Fabric or Power BI scopes). Azure CLI is NOT a
-  prerequisite. Microsoft architects may opt into an Azure CLI
-  shortcut via env var, but no user-facing flow depends on it.
-- **Synthetic source systems**: Dynamics 365 CRM + SAP S/4HANA ERP +
-  a homegrown invoicing application represented as a SQL database
-  mirrored to OneLake. Representative of real mid-market industrial
-  manufacturers; exercises cross-vendor reconciliation; the
-  homegrown system is the natural home for the most useful modeling
-  debt.
-- **Onboarding friction architecture**: the agent splits into a
-  scanner (Fabric notebook running inside the customer's workspace
-  under workspace identity) and a narrator (cloneable repo with MCP
-  server reading the scanner's OneLake findings artifact). This
-  eliminates the customer-side Entra admin-consent burden for broad
-  Fabric/Power BI scopes. The first-party Fabric workload remains
-  the v3 destination once Fabric's MCP/agent hosting story matures;
-  the OneLake findings artifact schema is designed to make that
-  later migration transparent to the narrator.
-- **Synthetic-data provisioner location**: implemented as Fabric
-  notebook(s), not as a laptop CLI. Runs under the same delegated
-  Fabric session identity as the scanner; no separate Entra app
-  registration; gated on a repo-config flag designating the target
-  workspace as a demo tenant.
-- **Scanner notebook runtime**: Python Fabric notebook (not
-  PySpark). Metadata scans don't need Spark; Python avoids
-  cluster-cold-start cost and unnecessary capacity consumption.
-- **Narrator workspace scoping**: paste a Fabric workspace URL into
-  the chat as the primary gesture; narrator infers the OneLake
-  findings folder path. Repository configuration caches the
-  most-recently-used workspace.
-- **Multi-run handling**: narrator selects the most recent run by
-  default and surfaces a one-line note that prior runs are
-  available; comparison across runs supported on request.
-- **Schema version skew**: narrator is forward-tolerant. When it
-  reads an artifact written by a newer scanner schema, it interprets
-  what it knows and explicitly marks unknown fields as
-  "produced by a newer scanner; not interpreted in this version."
-
-## Ready for `/speckit.clarify`
 
 All Session 1 and Session 2 clarifications are resolved in
 `spec.md`. The spec is ready to drive Spec Kit's planning commands.

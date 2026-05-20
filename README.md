@@ -50,7 +50,7 @@ AI doesn't read your data—it reads *how your data is described*. If those desc
 
 Your organization probably has multiple reports, dashboards, and datasets. Each one has its own definition of "Customer," "Order," or "Revenue." If those definitions disagree—different keys, different join logic, different names for the same thing—the AI gets confused about which one to trust.
 
-The scanner looks across all your semantic models and flags cases where the same real-world concept appears to be defined inconsistently. Think of it like spell-checking, but for your data's logic.
+The scanner looks across all your semantic models and flags cases where the same real-world concept appears to be defined inconsistently. It catches two kinds of conflicts: entities with similar names (like "Customer" vs "Cust") that have different primary keys or join logic, and structurally identical entities with unlike names (like "Customer" in CRM and "Account" in ERP) that share the same key columns and column set. Think of it like spell-checking, but for your data's logic.
 
 ### 2. Can you trace where each number came from?
 
@@ -60,11 +60,15 @@ Fabric IQ has a standard way to record that provenance—essentially a chain of 
 
 ### 3. Is the data organized in layers?
 
-Best-practice data platforms organize data in stages: raw data comes in, gets cleaned, then gets shaped into business-ready form. When those stages are missing or collapsed together, AI has a harder time distinguishing "the number as it arrived" from "the number after we applied business rules." The scanner looks for layer vocabulary (bronze/raw, silver/clean, gold/curated, and common synonyms) in your semantic model table names.
+Best-practice data platforms organize data in stages: raw data comes in, gets cleaned, then gets shaped into business-ready form. When those stages are missing or collapsed together, AI has a harder time distinguishing "the number as it arrived" from "the number after we applied business rules."
+
+The scanner measures this structurally: it counts how many derivation hops exist between raw tables and serving tables, checks whether transformations at each hop introduce real changes (calculated columns, type coercion, deduplication), and looks for physical separation between ingestion and serving layers. Layered naming vocabulary (bronze/silver/gold and common synonyms) is a secondary corroborating signal — the primary signal is structural depth.
 
 ### 4. Is there a process for catching and correcting data quality issues?
 
-AI systems that answer questions about data need a way to learn when their answers were wrong. Steward-loop modeling checks whether your data platform has feedback mechanisms—review processes, exception queues, correction workflows—that close the loop between an AI answer and the human who validates it. The scanner looks for stewardship vocabulary (correction, feedback, audit, quality score, exception, flag, etc.) in your semantic model tables, measures, and ontology entities.
+AI systems that answer questions about data need a way to learn when their answers were wrong. Steward-loop modeling checks whether your data platform has feedback mechanisms—review processes, exception queues, correction workflows—that close the loop between an AI answer and the human who validates it.
+
+The scanner looks for three things in sequence: whether a correction-capture structure exists (a corrections table, exception queue, or Correction entity in the ontology); whether it's actually wired into your semantic model (a measure or binding that reads from it); and whether correction data feeds back into reconciliation rules, closing the loop rather than just filing errors away. Findings carry a confidence note explaining what the scanner can and can't see — steward loops that run through external tools like Teams or ServiceNow are outside the scanner's sight line.
 
 ---
 
@@ -196,10 +200,10 @@ When the final cell completes, the findings artifact is in `Files/modeling-readi
 
 | Discipline | What it detects |
 |------------|-----------------|
-| **Canonical entity modeling** | Inconsistent entity definitions across semantic models (mismatched keys, join logic, naming) |
-| **Field-level lineage** | Missing source-attribution properties in Fabric IQ ontology entity types |
-| **Layered modeling** | Absence of bronze/silver/gold staging layers |
-| **Steward-loop modeling** | Absence of data stewardship feedback loops |
+| **Canonical entity modeling** | Inconsistent entity definitions across semantic models — by name similarity (different keys/join logic) and by structural similarity (unlike-named entities like Customer vs Account that share key columns) |
+| **Field-level lineage** | Missing source-attribution properties in Fabric IQ ontology entity types (flag-based, not name-matched) |
+| **Layered modeling** | Flat or shallow derivation chains — measures derivation depth, transformation presence at each hop, and physical separation of ingestion from serving layers |
+| **Steward-loop modeling** | Missing or inactive correction machinery — checks for correction-capture structure, semantic model binding, and rule-consumption closing the feedback loop |
 
 ### Scoring
 

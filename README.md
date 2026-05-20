@@ -2,12 +2,12 @@
 
 **Who this is for:** Data architects and platform engineers preparing a Microsoft Fabric workspace for Fabric IQ (AI-powered Q&A and analytics). Before AI can answer questions about your data, your semantic models and ontologies need to be modeled correctly. This tool tells you exactly where the gaps are—and what to do about them.
 
-**What it does:** In about fifteen minutes, it produces:
+**What it does:** Tell the narrator agent your workspace ID and it handles everything. Within fifteen minutes a findings artifact is sitting in OneLake — a versioned JSON document scoring your tenant across four modeling disciplines, with every finding traced back to the specific semantic model or ontology that produced it. The agent then walks you through the results:
 - An **executive summary** scoring your workspace across four modeling disciplines
 - A **findings report** grouped by pattern, with specific models and fields called out
 - A **remediation plan** your team can execute against
 
-**How it works:** A Fabric notebook scans your workspace using the Power BI REST API and Fabric IQ APIs. It writes a structured findings artifact to OneLake. You open the narrator in your AI host (VS Code + GitHub Copilot, Claude Code, or Cursor), and an agent reads those findings to guide the conversation, generate deliverables, and answer follow-up questions—grounded in evidence, not guesswork.
+**How it works:** You open your AI host (VS Code + GitHub Copilot, Claude Code, or Cursor), clone this repo, and tell the agent to run the scanner on your workspace. The agent deploys and triggers the scanner notebook via the Fabric API, polls until it completes, and reads the findings from OneLake to guide the assessment conversation. The notebook runs entirely inside Fabric using the Power BI REST API and Fabric IQ APIs — authenticated as you, with your existing workspace permissions. No new Entra app registration. No admin consent. No data leaves the tenant.
 
 ---
 
@@ -39,13 +39,13 @@ AI systems that answer questions about data need a way to learn when their answe
 
 ## Getting Started
 
-There are two ways to get set up. Choose the one that fits how you work.
+There are two ways to get started. The first is the fastest—just open your AI host and talk to it.
 
 ---
 
-### Path A — Let Copilot set it up for you *(recommended)*
+### Path A — Tell the agent, it handles everything *(recommended)*
 
-If you have VS Code with GitHub Copilot, you can hand the entire setup to the agent. It will clone the repo, run bootstrap, configure the narrator, trigger the scanner, and walk you through the assessment—without you following manual steps.
+If you have VS Code with GitHub Copilot (or Claude Code or Cursor), the agent does the full setup and scan for you.
 
 **1. Clone and open in VS Code**
 
@@ -57,23 +57,35 @@ code .
 
 **2. Open Copilot Chat in Agent mode and say:**
 
-> Help me set up and run the Modeling Readiness Assessor against my Fabric workspace.
+> Run the scanner on workspace `<your-workspace-guid>`
 
-Copilot will read this README and the `.github/copilot-instructions.md` file, then guide you step by step—asking for your workspace ID when it needs it, running bootstrap, triggering the scanner notebook via the Fabric API, and starting the assessment conversation.
+That's it. The agent will run bootstrap, deploy the scanner notebook to your Fabric workspace via the Fabric API, poll until it completes, and start the assessment conversation automatically. You'll be prompted to sign in with your Microsoft account when needed (device code flow — no admin consent required).
 
 **You'll need:**
-- Your Fabric workspace GUID (find it in the URL when you're in the Fabric portal: `https://app.fabric.microsoft.com/groups/<this-part>/...`)
-- Fabric Viewer + Run permissions on that workspace
-- To sign in to your Microsoft account twice when prompted (once for OneLake read, once for Fabric API access — both use your normal Microsoft login, no admin consent required)
+- Your Fabric workspace GUID (find it in the URL: `https://app.fabric.microsoft.com/groups/<this-part>/...`)
+- Fabric Contributor permissions on that workspace (to deploy and run the notebook)
+
+**What the agent does behind the scenes:**
+1. Installs the narrator's Python dependencies and registers the MCP server
+2. Uploads `scanner/modeling-readiness-scanner.ipynb` to your Fabric workspace via the Fabric Items API
+3. Triggers the notebook run and polls until it completes (≈ 15 min)
+4. Reads the findings artifact from OneLake
+5. Starts the assessment — executive summary, findings by pattern, remediation plan
+
+When you're done with the assessment conversation, ask:
+
+> Write deliverables.
+
+The agent produces an executive summary, findings report, and remediation plan in an `assessments/` folder.
 
 ---
 
 ### Path B — Manual setup
 
-Follow these steps if you prefer to set things up yourself.
+Follow these steps if you prefer to configure things yourself before running the agent.
 
 **Prerequisites:**
-- Fabric workspace with Viewer + Run notebook permissions
+- Fabric workspace with Contributor permissions
 - Python 3.11+ on your local machine
 - VS Code with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot), or Claude Code, or Cursor
 
@@ -108,27 +120,19 @@ Edit `narrator.config.yaml`:
 workspace_url: "https://app.fabric.microsoft.com/groups/<your-workspace-guid>/..."
 ```
 
-#### Step 4 — Open your AI host and run the scanner
+#### Step 4 — Run the scanner
 
-1. Open VS Code in the repository folder
-2. Open GitHub Copilot Chat → switch to **Agent mode**
-3. Ask the agent to run the scanner:
+Open VS Code in the repository folder, open Copilot Chat in **Agent mode**, and say:
 
-   > Run the scanner against workspace `<your-workspace-guid>`. The notebook ID is `<notebook-item-id>`.
+> Run the scanner on workspace `<your-workspace-guid>`
 
-   The agent will trigger the scanner notebook via the Fabric API, poll until it completes, and confirm when the findings artifact is ready in OneLake. You'll be prompted to sign in with your Microsoft account (device code — no admin consent required).
-
-   > **Finding your notebook item ID:** After importing the scanner notebook into Fabric, open it and copy the item GUID from the URL: `.../items/<this-part>/...`
-
-   Alternatively, you can import and run the notebook manually — see [Manual notebook run](#manual-notebook-run) below.
+The agent deploys the scanner notebook to Fabric, triggers it, polls until complete, and confirms when the findings artifact is ready in OneLake. You'll be prompted to sign in with your Microsoft account (device code — no admin consent required).
 
 #### Step 5 — Start the assessment
 
-In Copilot Chat (still in Agent mode):
-
 > Assess this workspace.
 
-The narrator reads the findings artifact from OneLake and guides you through the assessment conversation. When you're done:
+The narrator reads the findings artifact and guides you through the results. When you're done:
 
 > Write deliverables.
 
@@ -136,9 +140,9 @@ The agent produces an executive summary, findings report, and remediation plan i
 
 ---
 
-### Manual notebook run
+### Manual notebook run *(fallback)*
 
-If you prefer to run the scanner notebook directly in the Fabric portal rather than via the agent:
+If you prefer to run the scanner notebook directly in the Fabric portal:
 
 1. In the Fabric portal, go to your workspace → **Import** → **Notebook**
 2. Import `scanner/modeling-readiness-scanner.ipynb`
@@ -151,7 +155,9 @@ If you prefer to run the scanner notebook directly in the Fabric portal rather t
    ```
 6. Run all remaining cells top-to-bottom
 
-When the final cell completes, the findings artifact is in `Files/modeling-readiness/<run-id>/` in your OneLake. Return to Step 5 above.
+When the final cell completes, the findings artifact is in `Files/modeling-readiness/<run-id>/` in your OneLake. Then open your AI host, open Copilot Chat in Agent mode, and say:
+
+> Assess this workspace.
 
 ---
 

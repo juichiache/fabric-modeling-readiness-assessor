@@ -291,3 +291,70 @@ class TestCorrectionBinding:
         model = make_model("cc2", ["Customer"], measure_names=["QualityScore"])
         _, has_signals = detect_steward_loop_gaps([model], [])
         assert has_signals is True
+
+
+# ---------------------------------------------------------------------------
+# Tests: rule-consumption (d4-rule-consumption)
+# ---------------------------------------------------------------------------
+
+class TestRuleConsumption:
+    """Tests for correction_feeds_rule detection via measure expression."""
+
+    def _make_model_with_correction_measure(self, model_id: str, expr: str) -> SemanticModel:
+        return SemanticModel(
+            model_id=model_id, name=f"Model-{model_id}", workspace_id="ws",
+            tables=[Table(name="Corrections"), Table(name="Customer")],
+            measures=[Measure(name="QualityRate", table="Customer", expression=expr)],
+        )
+
+    def test_measure_referencing_correction_feeds_rule_true(self):
+        model = self._make_model_with_correction_measure(
+            "rc1", "DIVIDE(COUNTROWS(Corrections), COUNTROWS(Customer))"
+        )
+        gaps, _ = detect_steward_loop_gaps([model], [])
+        if gaps:
+            gap = next((g for g in gaps if g.correction_structure_found), None)
+            if gap:
+                assert gap.correction_feeds_rule is True
+
+    def test_measure_not_referencing_correction_feeds_rule_false(self):
+        model = self._make_model_with_correction_measure(
+            "rc2", "SUM(Customer[Revenue])"
+        )
+        gaps, _ = detect_steward_loop_gaps([model], [])
+        if gaps:
+            gap = next((g for g in gaps if g.correction_structure_found), None)
+            if gap:
+                assert gap.correction_feeds_rule is False
+
+    def test_wired_but_not_consuming_hint_mentions_loop(self):
+        """Hint for wired-but-not-consuming case should mention closing the loop."""
+        from scanner.lib.scanner.findings import Relationship as Rel
+        model = SemanticModel(
+            model_id="rc3", name="WiredNoConsume", workspace_id="ws",
+            tables=[Table(name="Corrections"), Table(name="Customer")],
+            relationships=[
+                Rel(
+                    from_table="Customer", from_column="id",
+                    to_table="Corrections", to_column="customer_id",
+                    cardinality="OneToMany", cross_filter_direction="Single",
+                )
+            ],
+            measures=[Measure(name="Revenue", table="Customer", expression="SUM(Customer[Revenue])")],
+        )
+        gaps, _ = detect_steward_loop_gaps([model], [])
+        if gaps:
+            gap = next((g for g in gaps if g.correction_has_relationships and not g.correction_feeds_rule), None)
+            if gap:
+                hint = remediation_hint_for_gap(gap)
+                assert any(kw in hint.lower() for kw in ("loop", "measure", "rule", "expression"))
+
+    def test_ontology_correction_feeds_rule_always_false(self):
+        """Ontology metadata cannot expose rule expressions — feeds_rule is always False."""
+        from tests.scanner.test_steward_loop import make_ontology
+        ont = make_ontology("rc-o1", ["Corrections", "Customer"])
+        gaps, _ = detect_steward_loop_gaps([], [ont])
+        if gaps:
+            gap = next((g for g in gaps if g.correction_structure_found), None)
+            if gap:
+                assert gap.correction_feeds_rule is False

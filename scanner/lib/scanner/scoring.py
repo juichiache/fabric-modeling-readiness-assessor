@@ -87,19 +87,6 @@ def compute_score(
         rubric_version=version,
     )
 
-    # KeyError propagates naturally if discipline is absent — callers catch it.
-    thresholds = rubric["disciplines"][discipline]["thresholds"]
-    score = _resolve_score(finding_count, thresholds)
-
-    return MaturityScore(
-        discipline=discipline,
-        score=score,
-        assessment_status="assessed",
-        finding_count=finding_count,
-        rationale=rationale or _default_rationale(discipline, finding_count, score),
-        rubric_version=version,
-    )
-
 
 def _resolve_score(finding_count: int, thresholds: list[dict]) -> int:
     """Walk threshold entries in order; return score for first matching band."""
@@ -113,8 +100,31 @@ def _resolve_score(finding_count: int, thresholds: list[dict]) -> int:
     return 0
 
 
+_DISCIPLINE_CONFIDENCE_NOTES: dict[str, str] = {
+    "canonical_entity_modeling": (
+        "Detection is name-similarity gated; unlike-named twins (Customer vs Account) "
+        "require synonym coverage. Confidence is medium for name-match findings, "
+        "low for findings only reachable via synonym."
+    ),
+    "field_level_lineage": (
+        "Detection reads isSourceAttribution from the Fabric IQ API directly — "
+        "high confidence when the field is present; verify API shape if all entities score clean."
+    ),
+    "layered_modeling": (
+        "Vocabulary-only detection is medium confidence; structural derivation-depth "
+        "evidence (when source_expression is populated) is high confidence."
+    ),
+    "steward_loop_modeling": (
+        "Detects Fabric-side stewardship machinery only; correction processes running "
+        "in external systems (Teams, ServiceNow, Excel) are invisible to this scanner."
+    ),
+}
+
+
 def _default_rationale(discipline: str, finding_count: int, score: int) -> str:
-    return (
+    base = (
         f"{finding_count} finding(s) detected in {discipline}; "
         f"score {score}/4 per rubric v1.0."
     )
+    note = _DISCIPLINE_CONFIDENCE_NOTES.get(discipline)
+    return f"{base} {note}" if note else base

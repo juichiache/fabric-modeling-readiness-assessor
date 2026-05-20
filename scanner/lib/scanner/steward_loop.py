@@ -79,11 +79,11 @@ def _tokenize(name: str) -> list[str]:
 
 def _detect_correction_binding_model(
     model: SemanticModel,
-) -> tuple[bool, bool]:
-    """Check whether a correction-capture structure exists and is wired in (semantic model).
+) -> tuple[bool, bool, bool]:
+    """Check whether a correction-capture structure exists, is wired, and feeds a rule.
 
     Returns:
-        (correction_structure_found, correction_has_relationships)
+        (correction_structure_found, correction_has_relationships, correction_feeds_rule)
     """
     # Find tables whose name tokens match the correction-capture vocabulary
     correction_tables = [
@@ -91,7 +91,7 @@ def _detect_correction_binding_model(
         if any(tok in CORRECTION_CAPTURE_VOCAB for tok in _tokenize(t.name))
     ]
     if not correction_tables:
-        return False, False
+        return False, False, False
 
     # Check whether any relationship references a correction table (either direction)
     correction_set = set(correction_tables)
@@ -99,23 +99,34 @@ def _detect_correction_binding_model(
         r.from_table in correction_set or r.to_table in correction_set
         for r in model.relationships
     )
-    return True, has_rels
+
+    # Rule-consumption: does any measure expression reference a correction table?
+    feeds_rule = any(
+        corr_name.lower() in m.expression.lower()
+        for corr_name in correction_set
+        for m in model.measures
+        if m.expression
+    )
+    return True, has_rels, feeds_rule
 
 
 def _detect_correction_binding_ontology(
     ontology: Ontology,
-) -> tuple[bool, bool]:
-    """Check whether a correction-capture structure exists and is wired in (ontology).
+) -> tuple[bool, bool, bool]:
+    """Check whether a correction-capture structure exists, is wired, and feeds a rule.
 
     Returns:
-        (correction_structure_found, correction_has_relationships)
+        (correction_structure_found, correction_has_relationships, correction_feeds_rule)
+
+    Note: ontologies don't expose rule expressions in metadata — correction_feeds_rule
+    is always False for ontologies until the API exposes condition bindings.
     """
     correction_entities = [
         et.name for et in ontology.entity_types
         if any(tok in CORRECTION_CAPTURE_VOCAB for tok in _tokenize(et.name))
     ]
     if not correction_entities:
-        return False, False
+        return False, False, False
 
     # Check whether any relationship references a correction entity (either direction)
     correction_set = set(correction_entities)
@@ -124,14 +135,14 @@ def _detect_correction_binding_ontology(
         for et in ontology.entity_types
         for r in et.relationships
     )
-    return True, has_rels
+    return True, has_rels, False  # feeds_rule not reachable from ontology metadata
 
 
 # ---------------------------------------------------------------------------
 # Existing vocabulary scan (updated to include binding check)
 # ---------------------------------------------------------------------------
 
-def _scan_model(model: SemanticModel) -> tuple[list[str], list[str], bool, bool]:
+def _scan_model(model: SemanticModel) -> tuple[list[str], list[str], bool, bool, bool]:
     """Return (detected_signals, missing_signals, correction_found, correction_wired)."""
     detected: list[str] = []
 
@@ -154,11 +165,11 @@ def _scan_model(model: SemanticModel) -> tuple[list[str], list[str], bool, bool]
     if not has_measure_signal:
         missing.append("quality_or_feedback_measure")
 
-    corr_found, corr_wired = _detect_correction_binding_model(model)
-    return detected, missing, corr_found, corr_wired
+    corr_found, corr_wired, corr_feeds = _detect_correction_binding_model(model)
+    return detected, missing, corr_found, corr_wired, corr_feeds
 
 
-def _scan_ontology(ontology: Ontology) -> tuple[list[str], list[str], bool, bool]:
+def _scan_ontology(ontology: Ontology) -> tuple[list[str], list[str], bool, bool, bool]:
     """Return (detected_signals, missing_signals, correction_found, correction_wired)."""
     detected: list[str] = []
 
@@ -190,8 +201,8 @@ def _scan_ontology(ontology: Ontology) -> tuple[list[str], list[str], bool, bool
     if not detected:
         missing.append("stewardship_entity_or_relationship")
 
-    corr_found, corr_wired = _detect_correction_binding_ontology(ontology)
-    return detected, missing, corr_found, corr_wired
+    corr_found, corr_wired, corr_feeds = _detect_correction_binding_ontology(ontology)
+    return detected, missing, corr_found, corr_wired, corr_feeds
 
 
 def _gap_id(scope_id: str, scope_type: str) -> str:
@@ -215,7 +226,7 @@ def detect_steward_loop_gaps(
         if not model.tables and not model.measures:
             continue
         try:
-            detected, missing, corr_found, corr_wired = _scan_model(model)
+            detected, missing, corr_found, corr_wired, corr_feeds = _scan_model(model)
             if detected:
                 any_signal_found = True
             if missing:
@@ -228,13 +239,14 @@ def detect_steward_loop_gaps(
                     detected_signals=detected,
                     correction_structure_found=corr_found,
                     correction_has_relationships=corr_wired,
+                    correction_feeds_rule=corr_feeds,
                 ))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Error scanning steward-loop signals for model %r: %s", model.name, exc)
 
     for ontology in ontologies:
         try:
-            detected, missing, corr_found, corr_wired = _scan_ontology(ontology)
+            detected, missing, corr_found, corr_wired, corr_feeds = _scan_ontology(ontology)
             if detected:
                 any_signal_found = True
             if missing:
@@ -247,6 +259,7 @@ def detect_steward_loop_gaps(
                     detected_signals=detected,
                     correction_structure_found=corr_found,
                     correction_has_relationships=corr_wired,
+                    correction_feeds_rule=corr_feeds,
                 ))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Error scanning steward-loop signals for ontology %r: %s", ontology.name, exc)
@@ -285,6 +298,12 @@ def remediation_hint_for_gap(gap: StewardLoopGap) -> str:
             "A correction-capture structure exists but is not referenced by any model "
             "relationships — it may be orphaned. Wire it into the data model so corrections "
             "can flow back to canonical entity definitions."
+        )
+    elif gap.correction_structure_found and gap.correction_has_relationships and not gap.correction_feeds_rule:
+        hints.append(
+            "A wired correction-capture structure exists but no measure expression "
+            "references it — the loop is not closing. Add a measure that reads from "
+            "the correction table so quality feedback influences business rules."
         )
     if "correction_or_feedback_table" in missing:
         hints.append("Add a correction or feedback table to capture data quality exceptions.")

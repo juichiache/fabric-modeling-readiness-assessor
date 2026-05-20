@@ -203,3 +203,121 @@ class TestCandidateCap:
         result, was_assessed = detect_canonical_entity_conflicts([model], [])
         assert isinstance(result, list)
         assert was_assessed is True
+
+
+# ---------------------------------------------------------------------------
+# Structural-twin detection (cem-structural-twin)
+# ---------------------------------------------------------------------------
+
+class TestStructuralTwinDetection:
+    """Structural-similarity clustering for unlike-named but structurally identical entities."""
+
+    def _make_twin_models(
+        self,
+        name_a: str,
+        name_b: str,
+        shared_pks: list[str],
+        shared_cols: list[str],
+    ) -> tuple[SemanticModel, SemanticModel]:
+        """Build two models each with one entity — same structure, different names."""
+        model_a = SemanticModel(
+            model_id="model-crm", name="CRM", workspace_id="ws",
+            tables=[Table(name=name_a, primary_key_columns=shared_pks, source_columns=shared_cols)],
+        )
+        model_b = SemanticModel(
+            model_id="model-erp", name="ERP", workspace_id="ws",
+            tables=[Table(name=name_b, primary_key_columns=shared_pks, source_columns=shared_cols)],
+        )
+        return model_a, model_b
+
+    def test_unlike_named_entities_with_identical_pks_detected(self):
+        """Customer (CRM) and Account (ERP) with same PK columns → structural twin."""
+        m_a, m_b = self._make_twin_models(
+            "Customer", "Account",
+            shared_pks=["customer_id"],
+            shared_cols=["customer_id", "name", "email", "phone", "address", "created_at"],
+        )
+        # No synonyms path (use no-synonym file to force structural path)
+        from pathlib import Path
+        conflicts, was_assessed = detect_canonical_entity_conflicts([m_a, m_b], [], synonyms_path=Path("/nonexistent"))
+        assert was_assessed is True
+        twin_conflicts = [c for c in conflicts if "structural twin" in c.logical_entity_name]
+        assert len(twin_conflicts) == 1
+
+    def test_unlike_named_entities_with_no_overlap_not_detected(self):
+        """Two entities with completely different keys and columns are not twins."""
+        model_a = SemanticModel(
+            model_id="ma", name="A", workspace_id="ws",
+            tables=[Table(name="Widget", primary_key_columns=["widget_id"], source_columns=["widget_id", "color"])],
+        )
+        model_b = SemanticModel(
+            model_id="mb", name="B", workspace_id="ws",
+            tables=[Table(name="Invoice", primary_key_columns=["invoice_num"], source_columns=["invoice_num", "amount"])],
+        )
+        from pathlib import Path
+        conflicts, _ = detect_canonical_entity_conflicts([model_a, model_b], [], synonyms_path=Path("/nonexistent"))
+        twin_conflicts = [c for c in conflicts if "structural twin" in c.logical_entity_name]
+        assert len(twin_conflicts) == 0
+
+    def test_structural_twin_conflict_id_prefixed_cem_st(self):
+        m_a, m_b = self._make_twin_models(
+            "Customer", "Party",
+            shared_pks=["id"],
+            shared_cols=["id", "name", "email", "phone", "status", "region"],
+        )
+        from pathlib import Path
+        conflicts, _ = detect_canonical_entity_conflicts([m_a, m_b], [], synonyms_path=Path("/nonexistent"))
+        for c in conflicts:
+            if "structural twin" in c.logical_entity_name:
+                assert c.conflict_id.startswith("cem-st-")
+
+    def test_same_artifact_entities_not_twinned(self):
+        """Entities from the same model cannot be structural twins with each other."""
+        model = SemanticModel(
+            model_id="mono", name="Mono", workspace_id="ws",
+            tables=[
+                Table(name="Customer", primary_key_columns=["id"], source_columns=["id", "name"]),
+                Table(name="Account", primary_key_columns=["id"], source_columns=["id", "name"]),
+            ],
+        )
+        from pathlib import Path
+        conflicts, _ = detect_canonical_entity_conflicts([model], [], synonyms_path=Path("/nonexistent"))
+        twin_conflicts = [c for c in conflicts if "structural twin" in c.logical_entity_name]
+        assert len(twin_conflicts) == 0
+
+    def test_structural_twin_has_definitions_from_both_sources(self):
+        m_a, m_b = self._make_twin_models(
+            "Customer", "Account",
+            shared_pks=["customer_id"],
+            shared_cols=["customer_id", "name", "email", "phone", "address", "created_at"],
+        )
+        from pathlib import Path
+        conflicts, _ = detect_canonical_entity_conflicts([m_a, m_b], [], synonyms_path=Path("/nonexistent"))
+        twin_conflicts = [c for c in conflicts if "structural twin" in c.logical_entity_name]
+        if twin_conflicts:
+            source_ids = {d.source_id for d in twin_conflicts[0].definitions}
+            assert "model-crm" in source_ids
+            assert "model-erp" in source_ids
+
+    def test_structural_similarity_perfect_overlap(self):
+        from scanner.lib.scanner.canonical_entity import _structural_similarity
+        from scanner.lib.scanner.findings import EntityDefinition
+        defn = EntityDefinition(
+            logical_entity_name="E", source_type="semantic_model", source_id="s",
+            source_name="S", primary_key_columns=["id"],
+            source_columns=["id", "name", "email"], measure_names=["Revenue"],
+        )
+        assert _structural_similarity(defn, defn) == 1.0
+
+    def test_structural_similarity_no_overlap(self):
+        from scanner.lib.scanner.canonical_entity import _structural_similarity
+        from scanner.lib.scanner.findings import EntityDefinition
+        defn_a = EntityDefinition(
+            logical_entity_name="A", source_type="semantic_model", source_id="s1",
+            source_name="S1", primary_key_columns=["a_id"], source_columns=["a_id", "x"],
+        )
+        defn_b = EntityDefinition(
+            logical_entity_name="B", source_type="semantic_model", source_id="s2",
+            source_name="S2", primary_key_columns=["b_id"], source_columns=["b_id", "y"],
+        )
+        assert _structural_similarity(defn_a, defn_b) == 0.0

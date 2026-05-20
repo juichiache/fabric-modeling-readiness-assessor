@@ -236,6 +236,108 @@ def _build_disagreements(definitions: list[EntityDefinition]) -> list[Disagreeme
     return disagreements
 
 
+def _structural_similarity(defn_a: EntityDefinition, defn_b: EntityDefinition) -> float:
+    """Return a 0.0–1.0 score measuring how structurally similar two EntityDefinitions are.
+
+    Computes a weighted combination of:
+    - Primary-key column overlap (weight 0.5) — strongest signal of same concept
+    - Source-column Jaccard similarity (weight 0.3)
+    - Measure-name Jaccard similarity (weight 0.2)
+
+    Returns 1.0 when all three dimensions are identical; 0.0 when none overlap.
+    """
+    def _jaccard(a: set, b: set) -> float:
+        union = a | b
+        return len(a & b) / len(union) if union else 0.0
+
+    pk_a = {_normalize(c) for c in defn_a.primary_key_columns}
+    pk_b = {_normalize(c) for c in defn_b.primary_key_columns}
+    pk_score = _jaccard(pk_a, pk_b) if (pk_a or pk_b) else 0.0
+
+    col_a = {_normalize(c) for c in defn_a.source_columns}
+    col_b = {_normalize(c) for c in defn_b.source_columns}
+    col_score = _jaccard(col_a, col_b) if (col_a or col_b) else 0.0
+
+    meas_a = {_normalize(m) for m in defn_a.measure_names}
+    meas_b = {_normalize(m) for m in defn_b.measure_names}
+    meas_score = _jaccard(meas_a, meas_b) if (meas_a or meas_b) else 0.0
+
+    return 0.5 * pk_score + 0.3 * col_score + 0.2 * meas_score
+
+
+# Minimum weighted structural similarity to flag two unlike-named entities as twins.
+# 0.7 requires strong PK overlap OR broad column overlap — avoids false positives
+# from entities that happen to share a small number of common column names.
+STRUCTURAL_TWIN_THRESHOLD = 0.7
+
+
+def _find_structural_twins(
+    candidates: list[tuple[str, SemanticModel | Ontology]],
+    unclaimed: list[bool],
+    synonyms: list[frozenset[str]],
+    threshold: float,
+) -> list[list[tuple[str, SemanticModel | Ontology]]]:
+    """Second pass: cluster structurally similar but unlike-named entities.
+
+    Runs only over candidates that were not already clustered in the first (name)
+    pass — i.e., singletons after name-similarity grouping.  For each remaining
+    unclustered entity, extracts its EntityDefinition and compares structurally
+    with other unclustered entities from *different* source artifacts.
+
+    Only pairs with meaningful structural content (≥1 PK column or ≥3 source
+    columns) are compared; empty definitions are skipped to avoid phantom clusters
+    of empty entities.
+    """
+    unvisited_indices = [i for i, eligible in enumerate(unclaimed) if eligible]
+    structural_clusters: list[list[tuple[str, SemanticModel | Ontology]]] = []
+    struct_visited = [False] * len(unvisited_indices)
+
+    # Pre-compute EntityDefinitions for all unvisited candidates
+    defns: list[EntityDefinition | None] = []
+    for idx in unvisited_indices:
+        name, source = candidates[idx]
+        defns.append(extract_entity_definition(source, name))
+
+    for i, pos_i in enumerate(unvisited_indices):
+        if struct_visited[i]:
+            continue
+        defn_i = defns[i]
+        # Skip if definition is empty (no PK and fewer than 3 columns)
+        if defn_i is None or (
+            not defn_i.primary_key_columns and len(defn_i.source_columns) < 3
+        ):
+            continue
+
+        name_i, source_i = candidates[pos_i]
+        sid_i = source_i.model_id if isinstance(source_i, SemanticModel) else source_i.ontology_id
+        cluster: list[tuple[str, SemanticModel | Ontology]] = [(name_i, source_i)]
+        struct_visited[i] = True
+
+        for j, pos_j in enumerate(unvisited_indices):
+            if j <= i or struct_visited[j]:
+                continue
+            defn_j = defns[j]
+            if defn_j is None or (
+                not defn_j.primary_key_columns and len(defn_j.source_columns) < 3
+            ):
+                continue
+            name_j, source_j = candidates[pos_j]
+            sid_j = source_j.model_id if isinstance(source_j, SemanticModel) else source_j.ontology_id
+            if sid_i == sid_j:
+                continue  # same artifact can't twin with itself
+            # Skip if names are similar — already covered by name-similarity pass
+            if _are_similar(name_i, name_j, threshold, synonyms):
+                continue
+            if _structural_similarity(defn_i, defn_j) >= STRUCTURAL_TWIN_THRESHOLD:
+                cluster.append((name_j, source_j))
+                struct_visited[j] = True
+
+        if len(cluster) >= 2:
+            structural_clusters.append(cluster)
+
+    return structural_clusters
+
+
 def detect_canonical_entity_conflicts(
     models: list[SemanticModel],
     ontologies: list[Ontology],
@@ -283,6 +385,8 @@ def detect_canonical_entity_conflicts(
     # Group candidates by similarity / synonym clusters
     # Each cluster is a list of (entity_name, source) pairs
     visited: list[bool] = [False] * len(candidates)
+    # claimed tracks which candidates actually joined a multi-member name conflict cluster
+    claimed: set[int] = set()
     conflicts: list[CanonicalEntityConflict] = []
 
     for i in range(len(candidates)):
@@ -306,7 +410,15 @@ def detect_canonical_entity_conflicts(
                 visited[j] = True
 
         if len(cluster) < 2:
-            continue  # Single definition — not a conflict
+            continue  # Singleton — eligible for structural-twin pass
+
+        # Mark all cluster members as claimed (won't be re-examined structurally)
+        for ent_name, source in cluster:
+            src_id = source.model_id if isinstance(source, SemanticModel) else source.ontology_id
+            for idx, (n, s) in enumerate(candidates):
+                s_id = s.model_id if isinstance(s, SemanticModel) else s.ontology_id
+                if n == ent_name and s_id == src_id:
+                    claimed.add(idx)
 
         # Build EntityDefinitions for each cluster member
         definitions: list[EntityDefinition] = []
@@ -332,6 +444,37 @@ def detect_canonical_entity_conflicts(
             )
         )
 
+    # Second pass: structural-twin detection for unclaimed (singleton) entities
+    unclaimed_mask = [i not in claimed for i in range(len(candidates))]
+    structural_clusters = _find_structural_twins(candidates, unclaimed_mask, synonyms, threshold)
+    for cluster in structural_clusters:
+        if len(cluster) < 2:
+            continue
+        # Use the first entity name as the cluster representative label
+        cluster_name = cluster[0][0]
+        definitions = []
+        for ent_name, source in cluster:
+            defn = extract_entity_definition(source, ent_name)
+            if defn is not None:
+                definitions.append(defn)
+        if len(definitions) < 2:
+            continue
+        disagreements = _build_disagreements(definitions)
+        # Mark as structural twin in description via a special conflict_id prefix
+        source_ids = [d.source_id for d in definitions]
+        twin_id = "cem-st-" + hashlib.sha1(
+            "|".join(d.logical_entity_name + d.source_id for d in definitions).encode()
+        ).hexdigest()[:8]
+        conflicts.append(
+            CanonicalEntityConflict(
+                conflict_id=twin_id,
+                logical_entity_name=f"{cluster_name} [structural twin]",
+                definitions=definitions,
+                disagreements=disagreements,
+                confirmed=False,
+            )
+        )
+
     return conflicts, True
 
 
@@ -340,12 +483,12 @@ def detect_canonical_entity_conflicts(
 # ---------------------------------------------------------------------------
 
 CEILING_NOTE = (
-    "Canonical Entity Modeling clusters entities by name similarity and synonym pairs. "
-    "Entities known by unlike names in different systems "
-    "(e.g., 'Customer' in CRM vs 'Account' in ERP) are detected only if the pair "
-    "appears in entity-synonyms.yaml. A low conflict count is a prompt to ask: "
-    "'do you call the same business concept different names in different systems?' "
-    "— not a verdict that canonical entity conflicts do not exist. "
-    "Structural-similarity clustering (matching by key/relationship shape regardless of name) "
-    "is planned for a future version."
+    "Canonical Entity Modeling uses two clustering paths. "
+    "Primary path: name-similarity and synonym pairs — detects conflicts among consistently-named entities. "
+    "Secondary path: structural-twin detection — clusters entities with near-identical key/column shapes "
+    "even when names differ (e.g., 'Customer' vs 'Account' with shared primary-key columns). "
+    "Entities with unlike names AND no structural overlap (no shared keys or columns) "
+    "cannot be detected automatically; the synonym file should be extended for known cross-system aliases. "
+    "A low conflict count is a prompt to ask: 'do you call the same business concept different names "
+    "in different systems?' — not a verdict that canonical entity conflicts do not exist."
 )

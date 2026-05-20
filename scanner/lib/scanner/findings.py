@@ -195,9 +195,10 @@ class StewardLoopGap:
     scope_name: str
     missing_signals: list[str]   # conceptual roles absent, e.g. ["correction_table", "feedback_measure"]
     detected_signals: list[str]  # stewardship vocabulary tokens that were found
-    # Structural signals (d4-binding-check)
+    # Structural signals (d4-binding-check, d4-rule-consumption)
     correction_structure_found: bool = False    # at least one correction-capture table/entity exists
     correction_has_relationships: bool = False  # that structure is wired into the broader model
+    correction_feeds_rule: bool = False         # a measure expression references the correction structure
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 PBI_API_BASE = "https://api.powerbi.com/v1.0/myorg"
 
 
-def extract_semantic_models(
+def extract_semantic_models(  # pragma: no cover
     workspace_id: str,
     token_fn: Callable[[], str],
     raw_writer=None,

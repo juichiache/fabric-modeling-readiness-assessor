@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "findings": [
+    {
+      "finding_id": "cem-a1b2c3d4",
+      "discipline": "canonical_entity_modeling",
+      "severity": "high",
+      "description": "'Customer' is defined inconsistently across 2 source artifact(s): CRM-Sales, Invoicing-Legacy",
+      "source_artifacts": [
+        {
+          "artifact_type": "semantic_model",
+          "artifact_id": "crm-sales-model-guid-001",
+          "artifact_name": "CRM-Sales"
+        },
+        {
+          "artifact_type": "semantic_model",
+          "artifact_id": "invoicing-legacy-model-guid-003",
+          "artifact_name": "Invoicing-Legacy"
+        }
+      ],
+      "remediation_hint": "Align primary key columns across both models.",
+      "entity_name": "Customer",
+      "pattern_reference": null
+    },
+    {
+      "finding_id": "cem-e5f6g7h8",
+      "discipline": "canonical_entity_modeling",
+      "severity": "high",
+      "description": "'Customer' and 'Account' appear to represent the same logical entity across CRM-Sales and ERP-Finance",
+      "source_artifacts": [
+        {
+          "artifact_type": "semantic_model",
+          "artifact_id": "crm-sales-model-guid-001",
+          "artifact_name": "CRM-Sales"
+        },
+        {
+          "artifact_type": "semantic_model",
+          "artifact_id": "erp-finance-model-guid-002",
+          "artifact_name": "ERP-Finance"
+        }
+      ],
+      "remediation_hint": "Establish a canonical Customer entity definition and retire the Account alias.",
+      "entity_name": "Customer",
+      "pattern_reference": null
+    },
+    {
+      "finding_id": "fll-i9j0k1l2",
+      "discipline": "field_level_lineage",
+      "severity": "medium",
+      "description": "Entity type 'Customer' is missing source-attribution properties: source_system_identifier, source_record_identifier, extraction_timestamp, confidence_score",
+      "source_artifacts": [
+        {
+          "artifact_type": "ontology",
+          "artifact_id": "manufacturing-ontology-guid-001",
+          "artifact_name": "Manufacturing-Ontology"
+        }
+      ],
+      "remediation_hint": "Add source-system identifier, source-record identifier, extraction-timestamp, and confidence-score properties to the Customer entity type.",
+      "entity_name": "Customer",
+      "pattern_reference": null
+    },
+    {
+      "finding_id": "fll-m3n4o5p6",
+      "discipline": "field_level_lineage",
+      "severity": "medium",
+      "description": "Entity type 'Product' is missing source-attribution properties: source_system_identifier, source_record_identifier, extraction_timestamp, confidence_score",
+      "source_artifacts": [
+        {
+          "artifact_type": "ontology",
+          "artifact_id": "manufacturing-ontology-guid-001",
+          "artifact_name": "Manufacturing-Ontology"
+        }
+      ],
+      "remediation_hint": "Add source-system identifier, source-record identifier, extraction-timestamp, and confidence-score properties to the Product entity type.",
+      "entity_name": "Product",
+      "pattern_reference": null
+    }
+  ],
+  "maturity_scores": [
+    {
+      "discipline": "canonical_entity_modeling",
+      "score": 2,
+      "assessment_status": "assessed",
+      "finding_count": 2,
+      "rationale": "2 finding(s) detected in canonical_entity_modeling; score 2/4 per rubric v1.0.",
+      "rubric_version": "1.0"
+    },
+    {
+      "discipline": "field_level_lineage",
+      "score": 2,
+      "assessment_status": "assessed",
+      "finding_count": 2,
+      "rationale": "2 finding(s) detected in field_level_lineage; score 2/4 per rubric v1.0.",
+      "rubric_version": "1.0"
+    },
+    {
+      "discipline": "layered_modeling",
+      "score": null,
+      "assessment_status": "not_assessed",
+      "finding_count": 0,
+      "rationale": "layered_modeling was not assessed in this version — no unambiguous signals present in the scanned workspace.",
+      "rubric_version": "1.0"
+    },
+    {
+      "discipline": "steward_loop_modeling",
+      "score": null,
+      "assessment_status": "not_assessed",
+      "finding_count": 0,
+      "rationale": "steward_loop_modeling was not assessed in this version — no unambiguous signals present in the scanned workspace.",
+      "rubric_version": "1.0"
+    }
+  ]
+}

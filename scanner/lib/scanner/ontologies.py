@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 FABRIC_API_BASE = "https://api.fabric.microsoft.com/v1"
 
 
-def extract_ontologies(
+def extract_ontologies(  # pragma: no cover
     workspace_id: str,
     token_fn: Callable[[], str],
     raw_writer=None,

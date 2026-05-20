@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "run_id": "20260520-143022-a3f7",
+  "timestamp": "2026-05-20T14:30:22Z",
+  "scanner_version": "0.1.0",
+  "workspace_id": "contoso-workspace-guid-0001",
+  "workspace_url": "https://app.fabric.microsoft.com/groups/contoso-workspace-guid-0001",
+  "scope": {
+    "type": "full",
+    "discipline_filter": null,
+    "artifact_filter": null
+  },
+  "artifact_counts": {
+    "semantic_models": 3,
+    "ontologies": 1
+  }
+}

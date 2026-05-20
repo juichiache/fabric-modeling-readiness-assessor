@@ -11,6 +11,30 @@
 
 ---
 
+## What the scanner is actually looking for
+
+AI doesn't read your data—it reads *how your data is described*. If those descriptions are inconsistent, incomplete, or missing, the AI gives wrong answers or refuses to answer at all. The scanner checks four things:
+
+### 1. Are the same concepts defined the same way everywhere?
+
+Your organization probably has multiple reports, dashboards, and datasets. Each one has its own definition of "Customer," "Order," or "Revenue." If those definitions disagree—different keys, different join logic, different names for the same thing—the AI gets confused about which one to trust.
+
+The scanner looks across all your semantic models and flags cases where the same real-world concept appears to be defined inconsistently. Think of it like spell-checking, but for your data's logic.
+
+### 2. Can you trace where each number came from?
+
+When an AI tells you "Q3 revenue was $4.2M," can it say *where* that number came from? Which source system? Which table? Which transformation?
+
+Fabric IQ has a standard way to record that provenance—essentially a chain of custody for every field. The scanner checks whether your ontology entities have that provenance information attached. When it's missing, the AI can produce answers but can't explain them, which breaks trust with anyone who needs to verify the output.
+
+### 3. Is the data organized in layers? *(checked in a future version)*
+
+Best-practice data platforms organize data in stages: raw data comes in, gets cleaned, then gets shaped into business-ready form. When those stages are missing or collapsed together, AI has a harder time distinguishing "the number as it arrived" from "the number after we applied business rules."
+
+### 4. Is there a process for catching and correcting data quality issues? *(checked in a future version)*
+
+AI systems that answer questions about data need a way to learn when their answers were wrong. Steward-loop modeling checks whether your data platform has feedback mechanisms—review processes, exception queues, correction workflows—that close the loop between an AI answer and the human who validates it.
+
 ---
 
 ## Prerequisites

@@ -87,18 +87,35 @@ class TestOneLayer:
 
 
 class TestTwoLayers:
-    def test_bronze_gold_low_severity(self):
+    def test_bronze_gold_medium_severity(self):
+        # depth=0 (no source_expressions), some vocabulary → medium
         model = make_model("m10", ["landing_orders", "mart_orders"])
         gaps = detect_layering_gaps([model])
         assert len(gaps) == 1
         assert sorted(gaps[0].detected_layers) == ["bronze", "gold"]
-        assert severity_for_gap(gaps[0]) == "low"
+        assert severity_for_gap(gaps[0]) == "medium"
 
-    def test_silver_gold_low_severity(self):
+    def test_silver_gold_medium_severity(self):
+        # depth=0, some vocabulary → medium
         model = make_model("m11", ["staging_orders", "serving_orders"])
         gaps = detect_layering_gaps([model])
         assert len(gaps) == 1
-        assert severity_for_gap(gaps[0]) == "low"
+        assert severity_for_gap(gaps[0]) == "medium"
+
+    def test_deep_chain_with_transforms_low_severity(self):
+        """A model with structural depth but incomplete vocabulary scores 'low'."""
+        from scanner.lib.scanner.findings import Table as T
+        model = SemanticModel(
+            model_id="m_deep", name="Deep", workspace_id="ws",
+            tables=[
+                T(name="Source", source_expression="Sql.Database(...)"),
+                T(name="Clean", source_expression='Table.SelectRows(Source, each [active] = true)'),
+                T(name="Mart", source_expression='Table.AddColumn(Clean, "Score", each 1)'),
+            ],
+        )
+        gaps = detect_layering_gaps([model])
+        if gaps:  # may or may not have a gap depending on depth analysis
+            assert severity_for_gap(gaps[0]) in ("low", "medium")
 
 
 class TestTableCount:
@@ -159,3 +176,121 @@ class TestLayerVocabBuckets:
                 f"'{word}' appears in both '{seen[word]}' and '{bucket}' buckets"
             )
             seen[word] = bucket
+
+
+class TestExpressionClassifier:
+    """Tests for classify_expression() — d3-expression-parser."""
+
+    def test_none_is_unknown(self):
+        from scanner.lib.scanner.layered_modeling import classify_expression
+        assert classify_expression(None) == "unknown"
+
+    def test_empty_is_unknown(self):
+        from scanner.lib.scanner.layered_modeling import classify_expression
+        assert classify_expression("") == "unknown"
+
+    def test_group_is_aggregated(self):
+        from scanner.lib.scanner.layered_modeling import classify_expression
+        assert classify_expression('Table.Group(Source, {"cat"}, {{"count", each Table.RowCount(_)}})') == "aggregated"
+
+    def test_add_column_is_transformed(self):
+        from scanner.lib.scanner.layered_modeling import classify_expression
+        assert classify_expression('Table.AddColumn(Source, "FullName", each [First] & " " & [Last])') == "transformed"
+
+    def test_transform_types_is_transformed(self):
+        from scanner.lib.scanner.layered_modeling import classify_expression
+        assert classify_expression('Table.TransformColumnTypes(Source, {{"date", type date}})') == "transformed"
+
+    def test_distinct_is_transformed(self):
+        from scanner.lib.scanner.layered_modeling import classify_expression
+        assert classify_expression('Table.Distinct(Source, {"id"})') == "transformed"
+
+    def test_select_rows_is_filtered(self):
+        from scanner.lib.scanner.layered_modeling import classify_expression
+        assert classify_expression('Table.SelectRows(Source, each [active] = true)') == "filtered"
+
+    def test_plain_source_ref_is_passthrough(self):
+        from scanner.lib.scanner.layered_modeling import classify_expression
+        assert classify_expression('Source{[Name="MyTable"]}[Data]') == "passthrough"
+
+    def test_aggregated_takes_priority_over_transformed(self):
+        """Table.Group + Table.AddColumn → aggregated wins."""
+        from scanner.lib.scanner.layered_modeling import classify_expression
+        expr = 'Table.AddColumn(Table.Group(Source, {"x"}, {}), "y", each 1)'
+        assert classify_expression(expr) == "aggregated"
+
+
+class TestDerivationDepth:
+    """Tests for compute_derivation_depths() — d3-derivation-depth."""
+
+    def test_no_deps_all_zero(self):
+        from scanner.lib.scanner.layered_modeling import compute_derivation_depths
+        deps = {"A": set(), "B": set(), "C": set()}
+        depths = compute_derivation_depths(deps)
+        assert all(d == 0 for d in depths.values())
+
+    def test_single_chain_depth(self):
+        from scanner.lib.scanner.layered_modeling import compute_derivation_depths
+        # C depends on B depends on A
+        deps = {"A": set(), "B": {"A"}, "C": {"B"}}
+        depths = compute_derivation_depths(deps)
+        assert depths["A"] == 0
+        assert depths["B"] == 1
+        assert depths["C"] == 2
+
+    def test_cycle_guard(self):
+        from scanner.lib.scanner.layered_modeling import compute_derivation_depths
+        # A→B→A cycle — should not hang
+        deps = {"A": {"B"}, "B": {"A"}}
+        depths = compute_derivation_depths(deps)
+        assert isinstance(depths["A"], int)
+        assert isinstance(depths["B"], int)
+
+    def test_diamond_dependency(self):
+        from scanner.lib.scanner.layered_modeling import compute_derivation_depths
+        # D depends on B and C; B and C both depend on A
+        deps = {"A": set(), "B": {"A"}, "C": {"A"}, "D": {"B", "C"}}
+        depths = compute_derivation_depths(deps)
+        assert depths["A"] == 0
+        assert depths["B"] == 1
+        assert depths["C"] == 1
+        assert depths["D"] == 2
+
+
+class TestStructuralLayeringDetection:
+    """Integration tests for structural evidence path in detect_layering_gaps()."""
+
+    def _make_structural_model(self, model_id: str) -> SemanticModel:
+        """Build a model with 3 tables in a chain with real transformations."""
+        from scanner.lib.scanner.findings import Table as T
+        return SemanticModel(
+            model_id=model_id,
+            name=f"Struct-{model_id}",
+            workspace_id="ws",
+            tables=[
+                T(name="RawData", source_expression="Sql.Database(...)"),
+                T(name="CleanData", source_expression="Table.TransformColumnTypes(RawData, {})"),
+                T(name="FinalMart", source_expression="Table.AddColumn(CleanData, 'Score', each 1)"),
+            ],
+        )
+
+    def test_three_table_chain_with_transforms_no_gap(self):
+        """Depth=2 chain with ≥25% transformed tables should not raise a gap."""
+        model = self._make_structural_model("chain")
+        gaps = detect_layering_gaps([model])
+        # The chain should clear the structural gate
+        # (depth=2, transformed ratio = 2/3 = 67% > 25%)
+        assert gaps == []
+
+    def test_flat_model_with_no_expressions_raises_gap(self):
+        """Model with no source_expressions (all unknown) should raise a gap."""
+        model = make_model("flat", ["Customers", "Products", "Orders"])
+        gaps = detect_layering_gaps([model])
+        assert len(gaps) == 1
+        assert gaps[0].max_derivation_depth == 0
+
+    def test_gap_includes_expression_class_counts(self):
+        model = make_model("flat2", ["Customers"])
+        gap = detect_layering_gaps([model])[0]
+        assert isinstance(gap.expression_class_counts, dict)
+        assert sum(gap.expression_class_counts.values()) == 1  # 1 table

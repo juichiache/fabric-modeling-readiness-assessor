@@ -175,6 +175,10 @@ class LayeringGap:
     detected_layers: list[str]   # e.g. ["gold"] — layers whose vocabulary was found
     missing_layers: list[str]    # e.g. ["bronze", "silver"] — layers with no vocabulary match
     table_count: int
+    # Structural signals (populated by v2 detector)
+    max_derivation_depth: int = 0         # max hop depth in inter-table dependency graph
+    flat_table_ratio: float = 0.0         # fraction of tables at depth 0 (no upstream deps)
+    expression_class_counts: dict = field(default_factory=dict)  # passthrough/filtered/transformed/aggregated counts
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +195,9 @@ class StewardLoopGap:
     scope_name: str
     missing_signals: list[str]   # conceptual roles absent, e.g. ["correction_table", "feedback_measure"]
     detected_signals: list[str]  # stewardship vocabulary tokens that were found
+    # Structural signals (d4-binding-check)
+    correction_structure_found: bool = False    # at least one correction-capture table/entity exists
+    correction_has_relationships: bool = False  # that structure is wired into the broader model
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +222,7 @@ class Finding:
     remediation_hint: str
     entity_name: str | None = None
     pattern_reference: str | None = None
+    confidence: str = "medium"  # "high" | "medium" | "low" — how structurally confident detection is
 
 
 @dataclass

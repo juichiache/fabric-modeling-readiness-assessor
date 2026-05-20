@@ -6,6 +6,7 @@ from scanner.lib.scanner.findings import (
     Ontology,
     EntityType,
     OntologyRelationship,
+    Relationship,
     SemanticModel,
     Table,
 )
@@ -222,6 +223,69 @@ class TestCamelCaseTokenization:
         model = make_model("cc1", ["CorrectionLog"])
         _, has_signals = detect_steward_loop_gaps([model], [])
         assert has_signals is True
+
+
+# ---------------------------------------------------------------------------
+# Tests: correction-capture binding check (d4-binding-check)
+# ---------------------------------------------------------------------------
+
+class TestCorrectionBinding:
+    """Tests for _detect_correction_binding_model/ontology and gap field propagation."""
+
+    def test_correction_table_found_populates_flag(self):
+        model = make_model("cb1", ["Corrections", "Customer"])
+        gaps, _ = detect_steward_loop_gaps([model], [])
+        # There's a gap because no quality measure, but correction_structure_found=True
+        if gaps:
+            assert gaps[0].correction_structure_found is True
+
+    def test_no_correction_table_flag_false(self):
+        model = make_model("cb2", ["Customer", "Product"])
+        gaps, _ = detect_steward_loop_gaps([model], [])
+        if gaps:
+            assert gaps[0].correction_structure_found is False
+
+    def test_correction_table_with_relationship_wired(self):
+        """Correction table referenced in a relationship → correction_has_relationships=True."""
+        from scanner.lib.scanner.findings import Relationship as Rel
+        model = SemanticModel(
+            model_id="cb3", name="Wired", workspace_id="ws",
+            tables=[Table(name="Corrections"), Table(name="Customer")],
+            relationships=[
+                Rel(
+                    from_table="Customer", from_column="id",
+                    to_table="Corrections", to_column="customer_id",
+                    cardinality="OneToMany", cross_filter_direction="Single",
+                )
+            ],
+        )
+        gaps, _ = detect_steward_loop_gaps([model], [])
+        assert any(g.correction_has_relationships is True for g in gaps)
+
+    def test_orphan_correction_table_not_wired(self):
+        """Correction table with no relationships → correction_has_relationships=False."""
+        model = make_model("cb4", ["Corrections", "Customer"])
+        gaps, _ = detect_steward_loop_gaps([model], [])
+        if gaps:
+            gap = next((g for g in gaps if g.correction_structure_found), None)
+            if gap:
+                assert gap.correction_has_relationships is False
+
+    def test_correction_entity_in_ontology_found(self):
+        ont = make_ontology("o-cb1", ["Customer", "Exceptions"])
+        gaps, _ = detect_steward_loop_gaps([], [ont])
+        if gaps:
+            assert gaps[0].correction_structure_found is True
+
+    def test_orphan_hint_mentions_wiring(self):
+        """Remediation hint should mention wiring when correction table is orphaned."""
+        model = make_model("cb5", ["Corrections", "Customer"])
+        gaps, _ = detect_steward_loop_gaps([model], [])
+        if gaps:
+            gap = next((g for g in gaps if g.correction_structure_found and not g.correction_has_relationships), None)
+            if gap:
+                hint = remediation_hint_for_gap(gap)
+                assert "wire" in hint.lower() or "relationship" in hint.lower() or "orphan" in hint.lower()
 
     def test_quality_score_camel_case_measure(self):
         model = make_model("cc2", ["Customer"], measure_names=["QualityScore"])

@@ -333,3 +333,19 @@ def detect_canonical_entity_conflicts(
         )
 
     return conflicts, True
+
+
+# ---------------------------------------------------------------------------
+# Ceiling note (honest communication of detection limits)
+# ---------------------------------------------------------------------------
+
+CEILING_NOTE = (
+    "Canonical Entity Modeling clusters entities by name similarity and synonym pairs. "
+    "Entities known by unlike names in different systems "
+    "(e.g., 'Customer' in CRM vs 'Account' in ERP) are detected only if the pair "
+    "appears in entity-synonyms.yaml. A low conflict count is a prompt to ask: "
+    "'do you call the same business concept different names in different systems?' "
+    "— not a verdict that canonical entity conflicts do not exist. "
+    "Structural-similarity clustering (matching by key/relationship shape regardless of name) "
+    "is planned for a future version."
+)

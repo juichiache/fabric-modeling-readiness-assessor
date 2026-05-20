@@ -4,6 +4,12 @@ Scans semantic model tables/measures and ontology entity types for vocabulary
 that implies a human-in-the-loop data quality feedback cycle. Does NOT prescribe
 exact names; detection is vocabulary-based (Framework Principle VI).
 
+v2 additions (d4-binding-check):
+- Correction-capture structure detection: identifies tables/entities whose name
+  implies they hold correction or exception data.
+- Relationship-wiring check: confirms whether a correction-capture structure is
+  referenced by relationships from other tables (closing path to the model).
+
 has_signals semantics
 ---------------------
 Because steward-loop vocabulary is entirely optional in a workspace that has
@@ -14,6 +20,14 @@ from different naming conventions. Therefore:
   anywhere in the workspace.  Gaps are scored normally.
 - ``has_signals = False`` → no tokens found; discipline is returned as not_assessed
   rather than reporting every scope as a gap.
+
+Honest ceiling
+--------------
+This detector sees only Fabric-side stewardship machinery: correction tables,
+feedback measures, and ontology relationships. It cannot detect correction
+processes running in external systems (Power BI report annotations, Teams
+messages, Excel overrides, ServiceNow tickets). A low or not_assessed score
+should prompt: "do you run a data quality correction workflow outside Fabric?"
 """
 from __future__ import annotations
 
@@ -26,7 +40,6 @@ from scanner.lib.scanner.findings import Ontology, SemanticModel, StewardLoopGap
 logger = logging.getLogger(__name__)
 
 # Vocabulary that implies the presence of a stewardship / feedback-loop pattern.
-# All tokens are lower-case; matching is case-insensitive.
 TABLE_ENTITY_VOCAB: frozenset[str] = frozenset({
     "correction", "corrections", "override", "overrides", "exception", "exceptions",
     "feedback", "review", "reviews", "approval", "approvals", "approved",
@@ -42,6 +55,13 @@ MEASURE_VOCAB: frozenset[str] = frozenset({
     "steward", "audit", "review", "feedback", "score",
 })
 
+# Tokens strongly associated with correction-capture structures (d4-binding-check).
+# These are the names SLM-01 describes for typed correction entities.
+CORRECTION_CAPTURE_VOCAB: frozenset[str] = frozenset({
+    "correction", "corrections", "exception", "exceptions", "override", "overrides",
+    "remediation", "remediations", "dispute", "disputes", "feedback",
+})
+
 _TOKEN_SPLITTER = re.compile(
     r"(?<=[a-z])(?=[A-Z])"
     r"|(?<=[A-Z])(?=[A-Z][a-z])"
@@ -53,8 +73,66 @@ def _tokenize(name: str) -> list[str]:
     return [t.lower() for t in _TOKEN_SPLITTER.split(name) if t]
 
 
-def _scan_model(model: SemanticModel) -> tuple[list[str], list[str]]:
-    """Return (detected_signals, missing_signals) for a semantic model."""
+# ---------------------------------------------------------------------------
+# Correction-capture binding check (d4-binding-check)
+# ---------------------------------------------------------------------------
+
+def _detect_correction_binding_model(
+    model: SemanticModel,
+) -> tuple[bool, bool]:
+    """Check whether a correction-capture structure exists and is wired in (semantic model).
+
+    Returns:
+        (correction_structure_found, correction_has_relationships)
+    """
+    # Find tables whose name tokens match the correction-capture vocabulary
+    correction_tables = [
+        t.name for t in model.tables
+        if any(tok in CORRECTION_CAPTURE_VOCAB for tok in _tokenize(t.name))
+    ]
+    if not correction_tables:
+        return False, False
+
+    # Check whether any relationship references a correction table (either direction)
+    correction_set = set(correction_tables)
+    has_rels = any(
+        r.from_table in correction_set or r.to_table in correction_set
+        for r in model.relationships
+    )
+    return True, has_rels
+
+
+def _detect_correction_binding_ontology(
+    ontology: Ontology,
+) -> tuple[bool, bool]:
+    """Check whether a correction-capture structure exists and is wired in (ontology).
+
+    Returns:
+        (correction_structure_found, correction_has_relationships)
+    """
+    correction_entities = [
+        et.name for et in ontology.entity_types
+        if any(tok in CORRECTION_CAPTURE_VOCAB for tok in _tokenize(et.name))
+    ]
+    if not correction_entities:
+        return False, False
+
+    # Check whether any relationship references a correction entity (either direction)
+    correction_set = set(correction_entities)
+    has_rels = any(
+        r.from_entity in correction_set or r.to_entity in correction_set
+        for et in ontology.entity_types
+        for r in et.relationships
+    )
+    return True, has_rels
+
+
+# ---------------------------------------------------------------------------
+# Existing vocabulary scan (updated to include binding check)
+# ---------------------------------------------------------------------------
+
+def _scan_model(model: SemanticModel) -> tuple[list[str], list[str], bool, bool]:
+    """Return (detected_signals, missing_signals, correction_found, correction_wired)."""
     detected: list[str] = []
 
     table_tokens = [t for table in model.tables for t in _tokenize(table.name)]
@@ -76,11 +154,12 @@ def _scan_model(model: SemanticModel) -> tuple[list[str], list[str]]:
     if not has_measure_signal:
         missing.append("quality_or_feedback_measure")
 
-    return detected, missing
+    corr_found, corr_wired = _detect_correction_binding_model(model)
+    return detected, missing, corr_found, corr_wired
 
 
-def _scan_ontology(ontology: Ontology) -> tuple[list[str], list[str]]:
-    """Return (detected_signals, missing_signals) for an ontology."""
+def _scan_ontology(ontology: Ontology) -> tuple[list[str], list[str], bool, bool]:
+    """Return (detected_signals, missing_signals, correction_found, correction_wired)."""
     detected: list[str] = []
 
     entity_tokens = [t for et in ontology.entity_types for t in _tokenize(et.name)]
@@ -88,20 +167,15 @@ def _scan_ontology(ontology: Ontology) -> tuple[list[str], list[str]]:
         if token in TABLE_ENTITY_VOCAB and token not in detected:
             detected.append(token)
 
-    # Detect bidirectional relationships — any entity pair that has relationships
-    # in both directions is a proxy for a feedback loop.
     rel_pairs: set[frozenset[str]] = set()
-    bidir_found = False
     for et in ontology.entity_types:
         for rel in et.relationships:
             pair = frozenset({rel.from_entity, rel.to_entity})
             if pair in rel_pairs:
-                bidir_found = True
                 if "bidirectional_relationship" not in detected:
                     detected.append("bidirectional_relationship")
             rel_pairs.add(pair)
 
-    # Relationship name vocabulary scan
     rel_tokens = [
         t
         for et in ontology.entity_types
@@ -116,7 +190,8 @@ def _scan_ontology(ontology: Ontology) -> tuple[list[str], list[str]]:
     if not detected:
         missing.append("stewardship_entity_or_relationship")
 
-    return detected, missing
+    corr_found, corr_wired = _detect_correction_binding_ontology(ontology)
+    return detected, missing, corr_found, corr_wired
 
 
 def _gap_id(scope_id: str, scope_type: str) -> str:
@@ -129,16 +204,9 @@ def detect_steward_loop_gaps(
 ) -> tuple[list[StewardLoopGap], bool]:
     """Detect steward-loop modeling gaps across models and ontologies.
 
-    Args:
-        models: All semantic models extracted from the workspace.
-        ontologies: All Fabric IQ ontologies extracted from the workspace.
-
     Returns:
-        (gaps, has_signals) where:
-        - gaps: list of StewardLoopGap for scopes with missing stewardship signals
-        - has_signals: True if any stewardship vocabulary was found anywhere in the
-          workspace, False if the workspace shows no stewardship vocabulary at all
-          (in which case the discipline should be scored as not_assessed).
+        (gaps, has_signals) where has_signals=False means no stewardship vocabulary
+        was found anywhere — discipline should be scored as not_assessed.
     """
     gaps: list[StewardLoopGap] = []
     any_signal_found = False
@@ -147,7 +215,7 @@ def detect_steward_loop_gaps(
         if not model.tables and not model.measures:
             continue
         try:
-            detected, missing = _scan_model(model)
+            detected, missing, corr_found, corr_wired = _scan_model(model)
             if detected:
                 any_signal_found = True
             if missing:
@@ -158,13 +226,15 @@ def detect_steward_loop_gaps(
                     scope_name=model.name,
                     missing_signals=missing,
                     detected_signals=detected,
+                    correction_structure_found=corr_found,
+                    correction_has_relationships=corr_wired,
                 ))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Error scanning steward-loop signals for model %r: %s", model.name, exc)
 
     for ontology in ontologies:
         try:
-            detected, missing = _scan_ontology(ontology)
+            detected, missing, corr_found, corr_wired = _scan_ontology(ontology)
             if detected:
                 any_signal_found = True
             if missing:
@@ -175,6 +245,8 @@ def detect_steward_loop_gaps(
                     scope_name=ontology.name,
                     missing_signals=missing,
                     detected_signals=detected,
+                    correction_structure_found=corr_found,
+                    correction_has_relationships=corr_wired,
                 ))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Error scanning steward-loop signals for ontology %r: %s", ontology.name, exc)
@@ -195,12 +267,11 @@ def severity_for_gap(gap: StewardLoopGap) -> str:
         return "medium"
     if has_measure and not has_table:
         return "low"
-    # Has both but still has missing items (e.g., missing stewardship_entity_or_relationship)
     return "low"
 
 
 def remediation_hint_for_gap(gap: StewardLoopGap) -> str:
-    """Return a remediation hint for the gap."""
+    """Return a remediation hint for the gap, including structural binding context."""
     missing = gap.missing_signals
     if not gap.detected_signals:
         return (
@@ -209,6 +280,12 @@ def remediation_hint_for_gap(gap: StewardLoopGap) -> str:
             "issues, corrections, and reviewer feedback to close the steward loop."
         )
     hints = []
+    if gap.correction_structure_found and not gap.correction_has_relationships:
+        hints.append(
+            "A correction-capture structure exists but is not referenced by any model "
+            "relationships — it may be orphaned. Wire it into the data model so corrections "
+            "can flow back to canonical entity definitions."
+        )
     if "correction_or_feedback_table" in missing:
         hints.append("Add a correction or feedback table to capture data quality exceptions.")
     if "quality_or_feedback_measure" in missing:
@@ -216,3 +293,19 @@ def remediation_hint_for_gap(gap: StewardLoopGap) -> str:
     if "stewardship_entity_or_relationship" in missing:
         hints.append("Add stewardship entity types or review relationships to the ontology.")
     return " ".join(hints) or "Verify stewardship coverage across all scoped artifacts."
+
+
+# ---------------------------------------------------------------------------
+# Ceiling note (honest communication of detection limits)
+# ---------------------------------------------------------------------------
+
+CEILING_NOTE = (
+    "Steward-Loop Modeling is assessed by detecting Fabric-side stewardship machinery: "
+    "correction/exception tables, quality measures, and ontology feedback relationships. "
+    "The scanner cannot detect correction processes running in external systems "
+    "(Power BI annotations, Teams messages, Excel overrides, ServiceNow tickets). "
+    "A low score is a prompt to ask: 'do you run a data quality correction workflow "
+    "outside Fabric?' — not a verdict that no steward loop exists. "
+    "Population and recency checks (is the corrections table actually used?) require "
+    "the lightweight OneLake data layer and are deferred to a future version."
+)

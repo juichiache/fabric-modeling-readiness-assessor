@@ -37,24 +37,54 @@ AI systems that answer questions about data need a way to learn when their answe
 
 ---
 
-## Prerequisites
+## Getting Started
 
-- **Fabric workspace** with Viewer + Run notebook permissions
-- **Python 3.11+** on your local machine
-- **VS Code** with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot) (primary path), or Claude Code, or Cursor
+There are two ways to get set up. Choose the one that fits how you work.
 
 ---
 
-## Getting Started
+### Path A — Let Copilot set it up for you *(recommended)*
 
-### Step 1 — Clone the narrator repository
+If you have VS Code with GitHub Copilot, you can hand the entire setup to the agent. It will clone the repo, run bootstrap, configure the narrator, trigger the scanner, and walk you through the assessment—without you following manual steps.
+
+**1. Clone and open in VS Code**
 
 ```bash
-git clone https://github.com/YOUR-ORG/fabric-modeling-readiness.git
-cd fabric-modeling-readiness/modeling-readiness-assessor
+git clone https://github.com/juichiache/fabric-modeling-readiness-assessor.git
+cd fabric-modeling-readiness-assessor
+code .
 ```
 
-### Step 2 — Run bootstrap
+**2. Open Copilot Chat in Agent mode and say:**
+
+> Help me set up and run the Modeling Readiness Assessor against my Fabric workspace.
+
+Copilot will read this README and the `.github/copilot-instructions.md` file, then guide you step by step—asking for your workspace ID when it needs it, running bootstrap, triggering the scanner notebook via the Fabric API, and starting the assessment conversation.
+
+**You'll need:**
+- Your Fabric workspace GUID (find it in the URL when you're in the Fabric portal: `https://app.fabric.microsoft.com/groups/<this-part>/...`)
+- Fabric Viewer + Run permissions on that workspace
+- To sign in to your Microsoft account twice when prompted (once for OneLake read, once for Fabric API access — both use your normal Microsoft login, no admin consent required)
+
+---
+
+### Path B — Manual setup
+
+Follow these steps if you prefer to set things up yourself.
+
+**Prerequisites:**
+- Fabric workspace with Viewer + Run notebook permissions
+- Python 3.11+ on your local machine
+- VS Code with [GitHub Copilot](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot), or Claude Code, or Cursor
+
+#### Step 1 — Clone the repository
+
+```bash
+git clone https://github.com/juichiache/fabric-modeling-readiness-assessor.git
+cd fabric-modeling-readiness-assessor
+```
+
+#### Step 2 — Run bootstrap
 
 Bootstrap installs the narrator's Python dependencies and registers the MCP server with your AI host automatically.
 
@@ -70,20 +100,50 @@ chmod +x bootstrap.sh && ./bootstrap.sh
 
 Follow the prompts. When it finishes, you'll see confirmation that the MCP server is registered.
 
-### Step 3 — Upload the scoring rubric to your Fabric workspace
+#### Step 3 — Configure the narrator
 
-The scanner notebook needs `scoring-rubric.yaml` at runtime. Upload it to your Fabric workspace's default lakehouse:
+Edit `narrator.config.yaml`:
 
-1. In the Fabric portal, open your workspace's default lakehouse
-2. Go to **Files**
-3. Upload `scoring-rubric.yaml` from the root of this repository
+```yaml
+workspace_url: "https://app.fabric.microsoft.com/groups/<your-workspace-guid>/..."
+```
 
-### Step 4 — Import and run the scanner notebook
+#### Step 4 — Open your AI host and run the scanner
 
-1. In the Fabric portal, go to **My workspace** → **Import** → **Notebook**
+1. Open VS Code in the repository folder
+2. Open GitHub Copilot Chat → switch to **Agent mode**
+3. Ask the agent to run the scanner:
+
+   > Run the scanner against workspace `<your-workspace-guid>`. The notebook ID is `<notebook-item-id>`.
+
+   The agent will trigger the scanner notebook via the Fabric API, poll until it completes, and confirm when the findings artifact is ready in OneLake. You'll be prompted to sign in with your Microsoft account (device code — no admin consent required).
+
+   > **Finding your notebook item ID:** After importing the scanner notebook into Fabric, open it and copy the item GUID from the URL: `.../items/<this-part>/...`
+
+   Alternatively, you can import and run the notebook manually — see [Manual notebook run](#manual-notebook-run) below.
+
+#### Step 5 — Start the assessment
+
+In Copilot Chat (still in Agent mode):
+
+> Assess this workspace.
+
+The narrator reads the findings artifact from OneLake and guides you through the assessment conversation. When you're done:
+
+> Write deliverables.
+
+The agent produces an executive summary, findings report, and remediation plan in an `assessments/` folder.
+
+---
+
+### Manual notebook run
+
+If you prefer to run the scanner notebook directly in the Fabric portal rather than via the agent:
+
+1. In the Fabric portal, go to your workspace → **Import** → **Notebook**
 2. Import `scanner/modeling-readiness-scanner.ipynb`
 3. Open the imported notebook
-4. **Run Cell 0** — this installs the scanner library. When it finishes, restart the kernel.
+4. **Run Cell 0** — installs the scanner library. Restart the kernel when it completes.
 5. In **Cell 1**, set your workspace details:
    ```python
    WORKSPACE_ID = "your-workspace-guid"
@@ -91,26 +151,7 @@ The scanner notebook needs `scoring-rubric.yaml` at runtime. Upload it to your F
    ```
 6. Run all remaining cells top-to-bottom
 
-When the final cell completes, the findings artifact has been written to `Files/modeling-readiness/<run-id>/` in your OneLake.
-
-### Step 5 — Configure the narrator
-
-Edit `narrator.config.yaml` in the repo root:
-
-```yaml
-workspace_url: "https://app.fabric.microsoft.com/groups/<your-workspace-guid>/..."
-```
-
-That's the same URL you used in the notebook.
-
-### Step 6 — Open your AI host and start the assessment
-
-1. Open VS Code in the `modeling-readiness-assessor/` folder
-2. Open GitHub Copilot Chat
-3. Switch to **Agent mode**
-4. Type: `@narrator assess this workspace`
-
-The narrator will read the findings artifact from OneLake and guide you through the assessment conversation. When you're done, type `write deliverables` — the agent will produce an executive summary, findings report, and remediation plan in an `assessments/` folder.
+When the final cell completes, the findings artifact is in `Files/modeling-readiness/<run-id>/` in your OneLake. Return to Step 5 above.
 
 ---
 
@@ -205,7 +246,3 @@ python -m pytest tests/ -q
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
-
-All Session 1 and Session 2 clarifications are resolved in
-`spec.md`. The spec is ready to drive Spec Kit's planning commands.

@@ -1,0 +1,21 @@
+# narrator.config.yaml
+# See specs/001-modeling-readiness-assessor/quickstart.md for usage.
+
+# Fabric workspace URL — cached after first use; paste to override.
+# The narrator infers the OneLake findings folder path from this URL.
+workspace_url: ""
+
+# Set to true to persist the Entra device-code auth token across sessions.
+# When enabled, the token is written to .narrator-token-cache (gitignored).
+# Delete .narrator-token-cache to force re-authentication.
+token_cache: false
+
+# Name-similarity threshold for candidate canonical entity conflict detection.
+# Range: 0.0–1.0. Default 0.85 minimizes false positives.
+# Lower for tenants with heavily abbreviated naming conventions.
+similarity_threshold: 0.85
+
+# Set to true to allow the synthetic-data provisioner to write to this workspace.
+# The provisioner checks this flag before any creation operation.
+# NEVER set to true for a production or customer workspace.
+demo_workspace: false

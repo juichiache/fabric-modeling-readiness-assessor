@@ -1,0 +1,126 @@
+{
+  "value": [
+    {
+      "id": "manufacturing-ontology-guid-001",
+      "name": "Manufacturing-Ontology",
+      "description": "Contoso manufacturing domain ontology",
+      "workspaceId": "contoso-workspace-guid-0001",
+      "entityTypes": [
+        {
+          "name": "Customer",
+          "properties": [
+            {
+              "name": "customer_name",
+              "dataType": "string",
+              "isSourceAttribution": false
+            },
+            {
+              "name": "customer_segment",
+              "dataType": "string",
+              "isSourceAttribution": false
+            },
+            {
+              "name": "annual_revenue",
+              "dataType": "decimal",
+              "isSourceAttribution": false
+            }
+          ],
+          "relationships": [
+            {
+              "fromEntity": "Customer",
+              "toEntity": "SalesOrder",
+              "relationshipName": "places"
+            }
+          ],
+          "bindings": [
+            {
+              "bindingId": "bind-customer-crm",
+              "sourceType": "semantic_model",
+              "sourceId": "crm-sales-model-guid-001",
+              "hasTemporalSourceMarker": false
+            }
+          ]
+        },
+        {
+          "name": "Product",
+          "properties": [
+            {
+              "name": "product_name",
+              "dataType": "string",
+              "isSourceAttribution": false
+            },
+            {
+              "name": "material_group",
+              "dataType": "string",
+              "isSourceAttribution": false
+            },
+            {
+              "name": "unit_cost",
+              "dataType": "decimal",
+              "isSourceAttribution": false
+            }
+          ],
+          "relationships": [
+            {
+              "fromEntity": "Product",
+              "toEntity": "SalesOrder",
+              "relationshipName": "included_in"
+            }
+          ],
+          "bindings": [
+            {
+              "bindingId": "bind-product-erp",
+              "sourceType": "semantic_model",
+              "sourceId": "erp-finance-model-guid-002",
+              "hasTemporalSourceMarker": false
+            }
+          ]
+        },
+        {
+          "name": "Vendor",
+          "properties": [
+            {
+              "name": "vendor_id",
+              "dataType": "string",
+              "isSourceAttribution": true
+            },
+            {
+              "name": "vendor_record_key",
+              "dataType": "string",
+              "isSourceAttribution": true
+            },
+            {
+              "name": "source_system",
+              "dataType": "string",
+              "isSourceAttribution": true
+            },
+            {
+              "name": "extracted_at",
+              "dataType": "datetime",
+              "isSourceAttribution": true
+            },
+            {
+              "name": "vendor_name",
+              "dataType": "string",
+              "isSourceAttribution": false
+            },
+            {
+              "name": "payment_terms",
+              "dataType": "string",
+              "isSourceAttribution": false
+            }
+          ],
+          "relationships": [],
+          "bindings": [
+            {
+              "bindingId": "bind-vendor-erp",
+              "sourceType": "semantic_model",
+              "sourceId": "erp-finance-model-guid-002",
+              "hasTemporalSourceMarker": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

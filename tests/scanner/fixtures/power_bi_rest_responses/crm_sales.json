@@ -1,0 +1,80 @@
+{
+  "value": [
+    {
+      "id": "crm-sales-model-guid-001",
+      "name": "CRM-Sales",
+      "description": "Customer relationship management semantic model",
+      "configuredBy": "data-team@contoso.com",
+      "isRefreshable": true,
+      "isOnPremGatewayRequired": false,
+      "tables": [
+        {
+          "name": "Customer",
+          "columns": [
+            {"name": "CustomerGUID", "dataType": "text", "columnType": "data"},
+            {"name": "CustomerName", "dataType": "text", "columnType": "data"},
+            {"name": "Region", "dataType": "text", "columnType": "data"},
+            {"name": "Segment", "dataType": "text", "columnType": "data"},
+            {"name": "AnnualRevenue", "dataType": "decimal", "columnType": "data"}
+          ],
+          "primaryKey": {"keyColumns": ["CustomerGUID"]},
+          "source": "SELECT * FROM crm.dim_customer"
+        },
+        {
+          "name": "SalesOrder",
+          "columns": [
+            {"name": "OrderID", "dataType": "text", "columnType": "data"},
+            {"name": "CustomerGUID", "dataType": "text", "columnType": "data"},
+            {"name": "OrderDate", "dataType": "dateTime", "columnType": "data"},
+            {"name": "OrderAmount", "dataType": "decimal", "columnType": "data"}
+          ],
+          "primaryKey": {"keyColumns": ["OrderID"]},
+          "source": "SELECT * FROM crm.fact_sales_order"
+        },
+        {
+          "name": "Date",
+          "columns": [
+            {"name": "DateKey", "dataType": "int64", "columnType": "data"},
+            {"name": "Date", "dataType": "dateTime", "columnType": "data"},
+            {"name": "Year", "dataType": "int64", "columnType": "data"},
+            {"name": "Month", "dataType": "int64", "columnType": "data"}
+          ],
+          "primaryKey": {"keyColumns": ["DateKey"]},
+          "source": "SELECT * FROM shared.dim_date"
+        }
+      ],
+      "relationships": [
+        {
+          "fromTable": "SalesOrder",
+          "fromColumn": "CustomerGUID",
+          "toTable": "Customer",
+          "toColumn": "CustomerGUID",
+          "crossFilteringBehavior": "oneDirection",
+          "fromCardinality": "Many",
+          "toCardinality": "One"
+        },
+        {
+          "fromTable": "SalesOrder",
+          "fromColumn": "OrderDate",
+          "toTable": "Date",
+          "toColumn": "Date",
+          "crossFilteringBehavior": "oneDirection",
+          "fromCardinality": "Many",
+          "toCardinality": "One"
+        }
+      ],
+      "measures": [
+        {
+          "name": "Total Revenue",
+          "table": "SalesOrder",
+          "expression": "SUM(SalesOrder[OrderAmount])"
+        },
+        {
+          "name": "Customer Count",
+          "table": "Customer",
+          "expression": "DISTINCTCOUNT(Customer[CustomerGUID])"
+        }
+      ]
+    }
+  ]
+}

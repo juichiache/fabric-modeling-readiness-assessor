@@ -1,0 +1,15 @@
+# entity-synonyms.yaml
+# Seed synonym pairs for canonical entity conflict detection.
+# Each entry declares two names that should be treated as candidates for the same
+# logical entity even when their similarity score falls below the configured threshold.
+# Loaded by scanner/lib/scanner/canonical_entity.py.
+#
+# Format: each entry is a pair of alternative names (order-independent).
+# Add tenant-specific synonyms here when onboarding a new customer.
+
+synonyms:
+  - [Customer, Account]
+  - [Product, Material]
+  - [Vendor, Supplier]
+  - [Order, Invoice]
+  - [Asset, Site]

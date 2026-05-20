@@ -1,0 +1,28 @@
+# Deliverables — never commit customer assessment output
+assessments/*
+!assessments/.gitkeep
+
+# Narrator auth token cache — must never be committed
+.narrator-token-cache
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# VS Code
+.vscode/settings.json
+
+# macOS
+.DS_Store

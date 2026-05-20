@@ -1,0 +1,59 @@
+# scoring-rubric.yaml
+# Versioned scoring rubric for the Modeling Readiness Assessor.
+# Loaded at runtime by scanner/lib/scanner/scoring.py.
+# scoring.py raises RuntimeError if this file is missing or schema_version is unrecognized.
+schema_version: "1.0"
+
+# Thresholds apply to finding_count per discipline.
+# Scores are assigned by the first matching threshold (ascending max_findings order).
+# The final entry without max_findings is the catch-all for any count above the last threshold.
+disciplines:
+  canonical_entity_modeling:
+    thresholds:
+      - max_findings: 0
+        score: 4
+      - max_findings: 2
+        score: 3
+      - max_findings: 5
+        score: 2
+      - max_findings: 10
+        score: 1
+      - score: 0          # catch-all: 11+ findings
+
+  field_level_lineage:
+    thresholds:
+      - max_findings: 0
+        score: 4
+      - max_findings: 2
+        score: 3
+      - max_findings: 5
+        score: 2
+      - max_findings: 10
+        score: 1
+      - score: 0
+
+  layered_modeling:
+    # Scored only when unambiguous signals are present; otherwise status = not_assessed.
+    thresholds:
+      - max_findings: 0
+        score: 4
+      - max_findings: 2
+        score: 3
+      - max_findings: 5
+        score: 2
+      - max_findings: 10
+        score: 1
+      - score: 0
+
+  steward_loop_modeling:
+    # Scored only when unambiguous signals are present; otherwise status = not_assessed.
+    thresholds:
+      - max_findings: 0
+        score: 4
+      - max_findings: 2
+        score: 3
+      - max_findings: 5
+        score: 2
+      - max_findings: 10
+        score: 1
+      - score: 0

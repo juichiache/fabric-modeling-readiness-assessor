@@ -1,0 +1,81 @@
+{
+  "value": [
+    {
+      "id": "erp-finance-model-guid-002",
+      "name": "ERP-Finance",
+      "description": "Enterprise resource planning financial semantic model",
+      "configuredBy": "finance-team@contoso.com",
+      "isRefreshable": true,
+      "isOnPremGatewayRequired": false,
+      "tables": [
+        {
+          "name": "Account",
+          "columns": [
+            {"name": "AccountNumber", "dataType": "text", "columnType": "data"},
+            {"name": "AccountName", "dataType": "text", "columnType": "data"},
+            {"name": "AccountType", "dataType": "text", "columnType": "data"},
+            {"name": "CreditLimit", "dataType": "decimal", "columnType": "data"},
+            {"name": "PaymentTerms", "dataType": "text", "columnType": "data"}
+          ],
+          "primaryKey": {"keyColumns": ["AccountNumber"]},
+          "source": "SELECT * FROM erp.dim_account"
+        },
+        {
+          "name": "Material",
+          "columns": [
+            {"name": "MaterialCode", "dataType": "text", "columnType": "data"},
+            {"name": "MaterialDescription", "dataType": "text", "columnType": "data"},
+            {"name": "MaterialGroup", "dataType": "text", "columnType": "data"},
+            {"name": "UnitCost", "dataType": "decimal", "columnType": "data"}
+          ],
+          "primaryKey": {"keyColumns": ["MaterialCode"]},
+          "source": "SELECT * FROM erp.dim_material"
+        },
+        {
+          "name": "FinancialPosting",
+          "columns": [
+            {"name": "PostingID", "dataType": "text", "columnType": "data"},
+            {"name": "AccountNumber", "dataType": "text", "columnType": "data"},
+            {"name": "MaterialCode", "dataType": "text", "columnType": "data"},
+            {"name": "PostingDate", "dataType": "dateTime", "columnType": "data"},
+            {"name": "Amount", "dataType": "decimal", "columnType": "data"}
+          ],
+          "primaryKey": {"keyColumns": ["PostingID"]},
+          "source": "SELECT * FROM erp.fact_financial_posting"
+        }
+      ],
+      "relationships": [
+        {
+          "fromTable": "FinancialPosting",
+          "fromColumn": "AccountNumber",
+          "toTable": "Account",
+          "toColumn": "AccountNumber",
+          "crossFilteringBehavior": "oneDirection",
+          "fromCardinality": "Many",
+          "toCardinality": "One"
+        },
+        {
+          "fromTable": "FinancialPosting",
+          "fromColumn": "MaterialCode",
+          "toTable": "Material",
+          "toColumn": "MaterialCode",
+          "crossFilteringBehavior": "oneDirection",
+          "fromCardinality": "Many",
+          "toCardinality": "One"
+        }
+      ],
+      "measures": [
+        {
+          "name": "Total Postings",
+          "table": "FinancialPosting",
+          "expression": "SUM(FinancialPosting[Amount])"
+        },
+        {
+          "name": "Account Count",
+          "table": "Account",
+          "expression": "DISTINCTCOUNT(Account[AccountNumber])"
+        }
+      ]
+    }
+  ]
+}

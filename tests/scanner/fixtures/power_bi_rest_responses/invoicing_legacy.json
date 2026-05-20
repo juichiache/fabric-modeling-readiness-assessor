@@ -1,0 +1,67 @@
+{
+  "value": [
+    {
+      "id": "invoicing-legacy-model-guid-003",
+      "name": "Invoicing-Legacy",
+      "description": "Legacy invoicing system semantic model (migrated from on-premises)",
+      "configuredBy": "legacy-team@contoso.com",
+      "isRefreshable": false,
+      "isOnPremGatewayRequired": false,
+      "tables": [
+        {
+          "name": "Customer",
+          "columns": [
+            {"name": "InvoiceCustomerID", "dataType": "int64", "columnType": "data"},
+            {"name": "CustName", "dataType": "text", "columnType": "data"},
+            {"name": "CustCity", "dataType": "text", "columnType": "data"}
+          ],
+          "primaryKey": {"keyColumns": ["InvoiceCustomerID"]},
+          "source": "SELECT * FROM legacy.customer"
+        },
+        {
+          "name": "Product",
+          "columns": [
+            {"name": "ProductID", "dataType": "int64", "columnType": "data"},
+            {"name": "ProductName", "dataType": "text", "columnType": "data"},
+            {"name": "ListPrice", "dataType": "decimal", "columnType": "data"}
+          ],
+          "primaryKey": {"keyColumns": ["ProductID"]},
+          "source": "SELECT * FROM legacy.product"
+        },
+        {
+          "name": "Invoice",
+          "columns": [
+            {"name": "InvoiceID", "dataType": "text", "columnType": "data"},
+            {"name": "InvoiceCustomerID", "dataType": "int64", "columnType": "data"},
+            {"name": "ProductID", "dataType": "int64", "columnType": "data"},
+            {"name": "InvoiceDate", "dataType": "dateTime", "columnType": "data"},
+            {"name": "InvoiceTotal", "dataType": "decimal", "columnType": "data"}
+          ],
+          "primaryKey": {"keyColumns": ["InvoiceID"]},
+          "source": "SELECT * FROM legacy.invoice"
+        }
+      ],
+      "relationships": [
+        {
+          "fromTable": "Invoice",
+          "fromColumn": "InvoiceCustomerID",
+          "toTable": "Customer",
+          "toColumn": "InvoiceCustomerID",
+          "crossFilteringBehavior": "oneDirection",
+          "fromCardinality": "Many",
+          "toCardinality": "One"
+        },
+        {
+          "fromTable": "Invoice",
+          "fromColumn": "ProductID",
+          "toTable": "Product",
+          "toColumn": "ProductID",
+          "crossFilteringBehavior": "oneDirection",
+          "fromCardinality": "Many",
+          "toCardinality": "One"
+        }
+      ],
+      "measures": []
+    }
+  ]
+}

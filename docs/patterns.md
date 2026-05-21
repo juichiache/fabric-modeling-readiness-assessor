@@ -45,14 +45,17 @@ Each pattern has:
 
 The detection mode is tied to the framework's scope-honesty discipline:
 Canonical Entity Modeling patterns are Auto; Field-Level Lineage patterns
-are Auto; Layered Modeling and Steward-Loop Modeling patterns are
-Signal-based or Deferred, reflecting v1's deliberately limited diagnostic
-reach into those disciplines.
+are Auto; Layered Modeling patterns are Auto (structural derivation depth
+and transformation analysis were added in v1 Wave 2); Steward-Loop
+Modeling patterns are Signal-based or partially Signal-based, reflecting
+the structural ceiling on what a point-in-time metadata scan can see for
+a discipline that is fundamentally a temporal process.
 
 Patterns are not exhaustive. They cover the high-frequency debt types
-the agent diagnoses in v1. As v2 expands diagnostic coverage to Layered
-Modeling and Steward-Loop Modeling deep analysis, additional patterns
-will be added; existing patterns will not be renamed or restructured.
+the agent diagnoses in v1. As v2 expands diagnostic coverage to
+Steward-Loop Modeling deep analysis and adds new disciplines, additional
+patterns will be added; existing patterns will not be renamed or
+restructured.
 
 ## Patterns for Canonical Entity Modeling
 
@@ -366,14 +369,18 @@ will be added; existing patterns will not be renamed or restructured.
   the data platform, the corrections are made in downstream tools
   (Excel, ticket comments, Slack messages) and never flow back into
   the canonical model.
-- **v1 detection mode**: Signal-based — the scanner flags SLM-01 only
-  when the ontology contains entity types whose names or schemas match
-  a recognizable Correction shape (a Correction-typed entity, or a
-  table named `corrections` / `overrides` / similar bound to an
-  entity). Presence of the signal indicates a correction loop is at
-  least partially modeled; absence is marked "not assessed in this
-  version" rather than treated as a finding (correction loops can
-  exist outside the platform and v1 cannot see them).
+- **v1 detection mode**: Signal-based — the scanner flags SLM-01 in
+  three progressive steps: (1) detects whether a correction-capture
+  structure exists (a Correction-typed entity, or a table named
+  `corrections` / `overrides` / similar in the ontology or semantic
+  model); (2) checks whether any semantic model measure or binding
+  actually references that structure (presence without reference is a
+  filing cabinet, not a loop); (3) checks whether any measure
+  expression references the correction table, indicating corrections
+  feed back into active logic rather than sitting unused. Absence of
+  the structure is marked "not assessed in this version" rather than
+  treated as a finding — correction loops can exist entirely outside
+  the platform and v1 cannot see them.
 - **What**: Corrections are captured as typed assertions in a
   designated correction workspace, with the correcting user, timestamp,
   the original value, the corrected value, and the reason. These
@@ -406,11 +413,16 @@ will be added; existing patterns will not be renamed or restructured.
 - **Debt type**: Even when corrections are captured as typed assertions
   (SLM-01), they accumulate without ever changing the rules that
   produced the wrong values in the first place.
-- **v1 detection mode**: Deferred to v2 — detecting whether captured
-  corrections actually feed rule refinement requires query-log and
-  rule-change-history analysis, which is out of v1 scope. The pattern
-  remains referenceable in remediation hints when SLM-01 has been
-  detected, but the v1 scanner does not flag SLM-02 on its own.
+- **v1 detection mode**: Partially Signal-based — v1 detects the
+  structural precondition for rule refinement: whether a measure
+  expression in the semantic model references the correction table,
+  indicating corrections feed active logic rather than sitting unread.
+  This is a necessary but not sufficient signal for full rule
+  refinement. Detecting whether accumulated corrections actually caused
+  rule changes over time requires query-log and rule-change-history
+  analysis, which remains Deferred to v2. The pattern is referenceable
+  in remediation hints when SLM-01 produces a "wired but not consuming"
+  finding.
 - **What**: A periodic review (weekly, monthly, quarterly depending on
   velocity) examines accumulated corrections, identifies patterns
   ("this same kind of correction has happened 47 times"), and updates
